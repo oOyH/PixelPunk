@@ -83,16 +83,21 @@ func (s *SetupController) TestConnection(c *gin.Context) {
 }
 
 func (s *SetupController) Install(c *gin.Context) {
+	// 检查是否为Docker/Compose模式且配置已预设
+	deployMode := common.GetDeployMode()
+	configPreset := common.IsConfigPreset()
+	isPresetMode := configPreset && deployMode != "standalone"
+
 	var req struct {
 		Database struct {
-			Type     string `json:"type" binding:"required"`
+			Type     string `json:"type"`
 			Host     string `json:"host"`
 			Port     int    `json:"port"`
 			Username string `json:"username"`
 			Password string `json:"password"`
 			Name     string `json:"name"`
 			Path     string `json:"path"`
-		} `json:"database" binding:"required"`
+		} `json:"database"`
 		Redis struct {
 			Host     string `json:"host"`
 			Port     int    `json:"port"`
@@ -115,6 +120,29 @@ func (s *SetupController) Install(c *gin.Context) {
 		return
 	}
 
+	// 非预设模式下验证数据库配置
+	if !isPresetMode {
+		if req.Database.Type == "" {
+			errors.HandleError(c, errors.New(errors.CodeValidationFailed, "数据库类型不能为空"))
+			return
+		}
+		switch req.Database.Type {
+		case "mysql":
+			if req.Database.Host == "" || req.Database.Username == "" || req.Database.Name == "" {
+				errors.HandleError(c, errors.New(errors.CodeValidationFailed, "MySQL数据库连接信息不完整"))
+				return
+			}
+		case "sqlite":
+			if req.Database.Path == "" {
+				errors.HandleError(c, errors.New(errors.CodeValidationFailed, "SQLite数据库文件路径不能为空"))
+				return
+			}
+		default:
+			errors.HandleError(c, errors.New(errors.CodeValidationFailed, "不支持的数据库类型"))
+			return
+		}
+	}
+
 	installManager := common.GetInstallManager()
 	if err := installManager.StartInstall(); err != nil {
 		errors.HandleError(c, errors.New(errors.CodeValidationFailed, err.Error()))
@@ -126,18 +154,14 @@ func (s *SetupController) Install(c *gin.Context) {
 		installManager.FinishInstall(installSuccess)
 	}()
 
-	// 检查是否为Docker/Compose模式且配置已预设
-	deployMode := common.GetDeployMode()
-	configPreset := common.IsConfigPreset()
-
 	// 在Docker/Compose模式下且配置已预设时，跳过数据库测试和配置文件写入
-	if !configPreset || deployMode == "standalone" {
+	if !isPresetMode {
 		if err := database.TestDatabaseConnection(req.Database.Type, req.Database.Host, req.Database.Port, req.Database.Username, req.Database.Password, req.Database.Name, req.Database.Path); err != nil {
 			errors.HandleError(c, errors.New(errors.CodeValidationFailed, "数据库连接失败: "+sanitizeDBError(err)))
 			return
 		}
 
-		if err := writeConfigFile(req); err != nil {
+		if err := writeConfigFileSimple(req.Database.Type, req.Database.Host, req.Database.Port, req.Database.Username, req.Database.Password, req.Database.Name, req.Database.Path, req.Redis.Host, req.Redis.Port, req.Redis.Password, req.Redis.DB); err != nil {
 			errors.HandleError(c, errors.New(errors.CodeInternal, "写入配置文件失败: "+err.Error()))
 			return
 		}
@@ -433,6 +457,96 @@ cors:
 		)
 	default:
 		return fmt.Errorf("不支持的数据库类型: %s", req.Database.Type)
+	}
+
+	return os.WriteFile(configPath, []byte(configContent), 0600)
+}
+
+// writeConfigFileSimple 简化版配置文件写入(用于非预设模式)
+func writeConfigFileSimple(dbType, dbHost string, dbPort int, dbUsername, dbPassword, dbName, dbPath string, redisHost string, redisPort int, redisPassword string, redisDB int) error {
+	if redisHost == "" {
+		redisHost = "localhost"
+	}
+	if redisPort == 0 {
+		redisPort = 6379
+	}
+
+	configPaths := []string{
+		"configs/config.yaml",
+		"config.yaml",
+	}
+
+	var configPath string
+	for _, path := range configPaths {
+		if _, err := os.Stat(path); err == nil {
+			configPath = path
+			break
+		}
+	}
+
+	if configPath == "" {
+		configPath = "configs/config.yaml"
+		if err := os.MkdirAll("configs", 0755); err != nil {
+			configPath = "config.yaml"
+		}
+	}
+
+	var configContent string
+	switch dbType {
+	case "mysql":
+		configContent = fmt.Sprintf(`# 应用基本配置
+app:
+  port: 9520
+  mode: "debug"
+
+# 数据库配置
+database:
+  type: "mysql"
+  host: "%s"
+  port: %d
+  username: "%s"
+  password: "%s"
+  name: "%s"
+
+# Redis配置
+redis:
+  host: "%s"
+  port: %d
+  password: "%s"
+  db: %d
+
+# 跨域(CORS)配置
+cors:
+  enabled: true
+  allowed_origins:
+    - "*"
+`, dbHost, dbPort, dbUsername, dbPassword, dbName, redisHost, redisPort, redisPassword, redisDB)
+	case "sqlite":
+		configContent = fmt.Sprintf(`# 应用基本配置
+app:
+  port: 9520
+  mode: "debug"
+
+# 数据库配置
+database:
+  type: "sqlite"
+  path: "%s"
+
+# Redis配置
+redis:
+  host: "%s"
+  port: %d
+  password: "%s"
+  db: %d
+
+# 跨域(CORS)配置
+cors:
+  enabled: true
+  allowed_origins:
+    - "*"
+`, dbPath, redisHost, redisPort, redisPassword, redisDB)
+	default:
+		return fmt.Errorf("不支持的数据库类型: %s", dbType)
 	}
 
 	return os.WriteFile(configPath, []byte(configContent), 0600)
