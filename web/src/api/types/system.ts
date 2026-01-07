@@ -56,6 +56,13 @@ export interface QdrantTestRequest {
   qdrant_timeout?: number
 }
 
+export interface RedisTestRequest {
+  host: string
+  port?: number
+  password?: string
+  db?: number
+}
+
 /* ==================== 存储渠道相关类型 ==================== */
 /* 支持后端动态扩展的渠道类型（避免前端硬编码） */
 export type StorageChannelType = string

@@ -13,6 +13,7 @@ func RegisterSetupRoutes(r *gin.RouterGroup) {
 	{
 		setupGroup.GET("/status", setupController.GetStatus)                // 获取安装状态
 		setupGroup.POST("/test-connection", setupController.TestConnection) // 测试数据库连接
+		setupGroup.POST("/test-redis", setupController.TestRedisConnection) // 测试Redis连接
 		setupGroup.POST("/install", setupController.Install)                // 执行安装
 	}
 }

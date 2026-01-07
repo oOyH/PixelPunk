@@ -172,6 +172,34 @@ func GuestUploadWithWatermark(c *gin.Context, file *multipart.FileHeader, folder
 
 	remainingCount := 10 // 默认剩余次数
 
+	// 【安全修复】检查游客上传权限和限制（与 GuestUpload 保持一致）
+	service := GetGuestUploadLimitService()
+	if service == nil {
+		logger.Error("GuestUploadWithWatermark: GetGuestUploadLimitService 返回 nil")
+		return nil, 0, errors.New(errors.CodeInternal, "游客上传限制服务初始化失败")
+	}
+
+	// 检查IP上传限制
+	ip := c.ClientIP()
+	ipAllowed, ipErr := service.CheckIPUploadLimit(ip)
+	if ipErr != nil {
+		logger.Error("GuestUploadWithWatermark: CheckIPUploadLimit 失败, err=%v", ipErr)
+		return nil, 0, ipErr
+	}
+	if !ipAllowed {
+		return nil, 0, errors.New(errors.CodeUploadLimitExceeded, "IP每日上传次数已达上限")
+	}
+
+	// 检查指纹上传限制（包含游客上传开关检查）
+	allowed, remaining, err := service.CheckUploadLimit(fingerprint)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !allowed {
+		return nil, 0, errors.New(errors.CodeUploadLimitExceeded, "上传次数已达限制")
+	}
+	remainingCount = remaining
+
 	ctx := CreateUploadContextWithDuration(c, 0, file, folderID, accessLevel, optimize, storageDuration)
 	ctx.IsGuestUpload = true
 	ctx.GuestFingerprint = fingerprint

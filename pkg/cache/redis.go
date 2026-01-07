@@ -57,6 +57,36 @@ func InitRedis() error {
 	return nil
 }
 
+// TestRedisConnection 测试Redis连接（不初始化全局客户端）
+func TestRedisConnection(host string, port int, password string, db int) error {
+	if host == "" {
+		return errors.New("Redis主机地址不能为空")
+	}
+	if port <= 0 {
+		port = 6379
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	options := &redis.Options{
+		Addr:     addr,
+		Password: password,
+		DB:       db,
+	}
+
+	client := redis.NewClient(options)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.Ping(ctx).Result()
+	if err != nil {
+		return fmt.Errorf("Redis连接失败: %v", err)
+	}
+
+	return nil
+}
+
 // Set 设置缓存
 func (c *RedisCache) Set(key string, value string, expiration time.Duration) error {
 	return c.client.Set(c.ctx, key, value, expiration).Err()

@@ -119,6 +119,38 @@ func (s *SetupController) TestConnection(c *gin.Context) {
 	errors.ResponseSuccess(c, nil, "数据库连接测试成功")
 }
 
+// TestRedisConnection 测试Redis连接
+func (s *SetupController) TestRedisConnection(c *gin.Context) {
+	var req struct {
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		Password string `json:"password"`
+		DB       int    `json:"db"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.New(errors.CodeValidationFailed, "参数错误: "+err.Error()))
+		return
+	}
+
+	// 默认端口
+	if req.Port == 0 {
+		req.Port = 6379
+	}
+
+	if req.Host == "" {
+		errors.HandleError(c, errors.New(errors.CodeValidationFailed, "Redis主机地址不能为空"))
+		return
+	}
+
+	if err := cache.TestRedisConnection(req.Host, req.Port, req.Password, req.DB); err != nil {
+		errors.HandleError(c, errors.New(errors.CodeValidationFailed, err.Error()))
+		return
+	}
+
+	errors.ResponseSuccess(c, nil, "Redis连接测试成功")
+}
+
 func (s *SetupController) Install(c *gin.Context) {
 	// 检查是否为Docker/Compose模式且配置已预设
 	deployMode := common.GetDeployMode()
