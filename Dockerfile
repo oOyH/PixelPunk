@@ -104,7 +104,7 @@ EXPOSE 9520
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9520/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:9520/api/v1/health || exit 1
 
 # 使用 entrypoint 脚本进行配置文件初始化
 ENTRYPOINT ["./docker-entrypoint.sh"]

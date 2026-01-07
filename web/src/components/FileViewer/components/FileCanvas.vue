@@ -171,11 +171,11 @@
       @touchend="handleTouchEnd"
     >
       <img
-        v-show="!isLoading && !hasError"
+        v-show="!hasError"
         ref="imageRef"
-        :src="fileUrl"
+        :src="fileUrl || undefined"
         :alt="currentFile?.display_name || $t('components.fileCanvas.file')"
-        class="main-image"
+        :class="['main-image', { 'is-loading': isLoading }]"
         :style="computedImageStyle"
         draggable="false"
         @load="handleImageLoad"
@@ -219,6 +219,10 @@
     display: block;
     user-select: none;
     pointer-events: none;
+  }
+
+  .main-image.is-loading {
+    opacity: 0;
   }
 
   .side-nav-btn {

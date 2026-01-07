@@ -1,8 +1,36 @@
 package utils
 
 import (
+	"net/url"
 	"strings"
 )
+
+func isLoopbackHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0"
+}
+
+func normalizePublicBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+
+	if parsed.Hostname() == "" || parsed.Scheme == "" {
+		return ""
+	}
+
+	if isLoopbackHost(parsed.Hostname()) {
+		return ""
+	}
+
+	return strings.TrimSuffix(baseURL, "/")
+}
 
 func GetSystemFileURL(path string) string {
 	if path == "" {
@@ -13,12 +41,11 @@ func GetSystemFileURL(path string) string {
 		return path
 	}
 
-	baseUrl := GetBaseUrl()
+	baseUrl := normalizePublicBaseURL(GetBaseUrl())
 	if baseUrl == "" {
 		return path
 	}
 
-	baseUrl = strings.TrimSuffix(baseUrl, "/")
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -34,19 +61,17 @@ func GenerateFullURL(path string, storageType string) string {
 }
 
 func GetFileFullURL(fileID string) string {
-	baseUrl := GetBaseUrl()
+	baseUrl := normalizePublicBaseURL(GetBaseUrl())
 	if baseUrl == "" {
 		return "/f/" + fileID
 	}
-	baseUrl = strings.TrimSuffix(baseUrl, "/")
 	return baseUrl + "/f/" + fileID
 }
 
 func GetFileThumbnailFullURL(fileID string) string {
-	baseUrl := GetBaseUrl()
+	baseUrl := normalizePublicBaseURL(GetBaseUrl())
 	if baseUrl == "" {
 		return "/t/" + fileID
 	}
-	baseUrl = strings.TrimSuffix(baseUrl, "/")
 	return baseUrl + "/t/" + fileID
 }

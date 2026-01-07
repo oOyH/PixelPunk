@@ -52,6 +52,17 @@
   const viewerContent = ref<HTMLDivElement>()
   const fileCanvasRef = ref<InstanceType<typeof FileCanvas>>()
 
+  const resolvedFileUrl = ref<string>('')
+  let resolvedBlobUrl: string | null = null
+  let loadSequence = 0
+
+  const revokeResolvedBlobUrl = () => {
+    if (resolvedBlobUrl) {
+      URL.revokeObjectURL(resolvedBlobUrl)
+      resolvedBlobUrl = null
+    }
+  }
+
   /* 使用composables */
   const {
     currentIndex,
@@ -194,22 +205,45 @@
   )
 
   const loadImageWithProgress = async () => {
+    const currentSequence = ++loadSequence
     const imageUrl = displayImage.value?.full_url || displayImage.value?.url
-    if (!imageUrl) return
+    if (!imageUrl) {
+      revokeResolvedBlobUrl()
+      resolvedFileUrl.value = ''
+      isLoading.value = false
+      hasError.value = true
+      return
+    }
 
     isLoading.value = true
     hasError.value = false
+    revokeResolvedBlobUrl()
+    resolvedFileUrl.value = ''
 
     try {
       const blob = await startRealImageLoading(imageUrl)
+      if (currentSequence !== loadSequence) {
+        return
+      }
       if (blob) {
-        URL.createObjectURL(blob)
-      } else {
+        resolvedBlobUrl = URL.createObjectURL(blob)
+        resolvedFileUrl.value = resolvedBlobUrl
+        return
       }
     } catch (error) {
       logger.error('Error loading image with progress:', error)
-      startLoadingProgressSimulation()
     }
+
+    // Fallback to direct <img> loading (e.g. cross-origin without CORS).
+    if (currentSequence !== loadSequence) {
+      return
+    }
+    resolvedFileUrl.value = imageUrl
+  }
+
+  const loadImage = () => {
+    if (!visible.value) return
+    void loadImageWithProgress()
   }
 
   const handleClose = () => {
@@ -431,7 +465,9 @@
       if (newFile && (!oldFile || newFile.id !== oldFile.id)) {
         isLoading.value = true
         hasError.value = false
-        startLoadingProgressSimulation()
+        if (visible.value) {
+          loadImage()
+        }
         resetTransform()
         if (isInTempPreview.value) {
           exitTempPreview()
@@ -461,20 +497,31 @@
   watch(currentIndex, (newIndex) => {
     if (props.files && props.files[newIndex]) {
       emit('change', props.files[newIndex], newIndex)
-      loadImageWithProgress()
+      if (visible.value) {
+        loadImage()
+      }
     }
   })
 
+  watch(
+    () => visible.value,
+    (isVisible) => {
+      if (isVisible) {
+        loadImage()
+        return
+      }
+      revokeResolvedBlobUrl()
+      resolvedFileUrl.value = ''
+    }
+  )
+
   onMounted(() => {
     document.addEventListener('fullscreenchange', handleFullscreenChange)
-
-    if (props.file || (props.files && props.files.length > 0 && props.files[currentIndex.value])) {
-      loadImageWithProgress()
-    }
   })
 
   onUnmounted(() => {
     document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    revokeResolvedBlobUrl()
   })
 </script>
 
@@ -510,7 +557,7 @@
               <FileCanvas
                 ref="fileCanvasRef"
                 :current-file="displayImage"
-                :file-url="displayImage?.full_url || ''"
+                :file-url="resolvedFileUrl"
                 :is-loading="isLoading"
                 :has-error="hasError"
                 :show-side-nav="hasMultipleFiles"

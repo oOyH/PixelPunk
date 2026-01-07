@@ -255,14 +255,17 @@ export interface ExtendedAxiosRequestConfig extends AxiosRequestConfig, Extended
 
 export const getApiBaseUrl = (): string => {
   try {
+    if (typeof window !== 'undefined') {
+      const runtimeValue = (window as any).__VITE_API_BASE_URL__ || (window as any).__VITE_RUNTIME_CONFIG__?.VITE_API_BASE_URL
+      if (typeof runtimeValue === 'string' && runtimeValue.trim() !== '') {
+        return runtimeValue.trim()
+      }
+    }
+
     if (typeof import.meta !== 'undefined' && import.meta.env) {
       return import.meta.env.VITE_API_BASE_URL || '/api/v1'
     }
-
-    if (typeof window !== 'undefined' && (window as any).__VITE_API_BASE_URL__) {
-      return (window as any).__VITE_API_BASE_URL__
-    }
-  } catch (_error) {
+  } catch (error) {
     console.warn('Unable to read environment variable VITE_API_BASE_URL:', error)
   }
 

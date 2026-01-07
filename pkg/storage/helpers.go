@@ -76,6 +76,33 @@ func GetFullURLs(file models.File) (string, string, string) {
 		return s
 	}
 
+	isLoopbackHost := func(hostport string) bool {
+		hostport = strings.TrimSpace(hostport)
+		if hostport == "" {
+			return false
+		}
+
+		// Trim any accidental path suffix.
+		if idx := strings.Index(hostport, "/"); idx >= 0 {
+			hostport = hostport[:idx]
+		}
+
+		host := hostport
+		// IPv6: [::1]:9520
+		if strings.HasPrefix(host, "[") {
+			if idx := strings.Index(host, "]"); idx > 1 {
+				host = host[1:idx]
+			}
+		} else {
+			if idx := strings.Index(host, ":"); idx > 0 {
+				host = host[:idx]
+			}
+		}
+
+		h := strings.ToLower(strings.TrimSpace(host))
+		return h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "0.0.0.0"
+	}
+
 	extractProtocol := func(s string) string {
 		s = strings.TrimSpace(s)
 		if strings.HasPrefix(strings.ToLower(s), "https://") {
@@ -111,6 +138,11 @@ func GetFullURLs(file models.File) (string, string, string) {
 				customDomain = sanitizeDomain(vv)
 			}
 		}
+	}
+
+	// Prevent generating unusable absolute URLs like http://localhost/... for non-local clients.
+	if isLoopbackHost(customDomain) {
+		customDomain = ""
 	}
 
 	hideRemoteURL := false
@@ -166,6 +198,12 @@ func GetFullURLs(file models.File) (string, string, string) {
 				if siteURL, ok := website.Settings["site_base_url"].(string); ok && siteURL != "" {
 					baseURL = strings.TrimSuffix(siteURL, "/")
 				}
+			}
+		}
+
+		if baseURL != "" {
+			if parsed, err := url.Parse(baseURL); err == nil && isLoopbackHost(parsed.Hostname()) {
+				baseURL = ""
 			}
 		}
 

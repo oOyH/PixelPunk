@@ -44,14 +44,23 @@ func ToggleFileRecommendStatus(fileID string) (*AdminFileDetailResponse, error) 
 func getRandomFileGlobal() (*AdminFileDetailResponse, error) {
 	var file models.File
 	var totalCount int64
-	if err := database.DB.Model(&models.File{}).Where("is_recommended = ? AND access_level = ?", true, AccessPublic).Where("status <> ?", StatusPendingDeletion).Count(&totalCount).Error; err != nil {
+	if err := database.DB.Model(&models.File{}).
+		Where("is_recommended = ? AND access_level = ?", true, AccessPublic).
+		Where("status <> ?", StatusPendingDeletion).
+		Count(&totalCount).Error; err != nil {
 		return nil, errors.Wrap(err, errors.CodeDBQueryFailed, "查询推荐文件总数失败")
 	}
 	if totalCount == 0 {
-		return nil, errors.New(errors.CodeNotFound, "暂无推荐文件")
+		// 该场景在 controller 层会被视为“成功但无数据”，避免前端产生 404 控制台报错
+		return nil, errors.New(errors.CodeServiceUnavailable, "暂无推荐文件")
 	}
 	offset := rand.Int63n(totalCount)
-	if err := database.DB.Where("is_recommended = ? AND access_level = ?", true, AccessPublic).Where("status <> ?", StatusPendingDeletion).Offset(int(offset)).Limit(1).First(&file).Error; err != nil {
+	if err := database.DB.
+		Where("is_recommended = ? AND access_level = ?", true, AccessPublic).
+		Where("status <> ?", StatusPendingDeletion).
+		Offset(int(offset)).
+		Limit(1).
+		First(&file).Error; err != nil {
 		return nil, errors.Wrap(err, errors.CodeDBQueryFailed, "查询推荐文件失败")
 	}
 	return buildFileResponse(file)

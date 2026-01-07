@@ -155,15 +155,17 @@ func RegisterRoutes(r *gin.Engine) {
 		shortLinkGroup.GET("/:shortURL", fileController.ServeFileByShortURL)
 	}
 
-	r.GET("/file/avatar/:fileName", fileController.ServeAvatarFile)
+	r.GET("/file/avatar/:fileName", fileController.ServeAvatarFileSafe)
 
-	r.GET("/file/admin/:fileName", fileController.ServeAdminFile)
+	r.GET("/file/admin/:fileName", fileController.ServeAdminFileSafe)
 
 	apiUploadRoutes := r.Group("/api/v1/external")
+	apiUploadRoutes.Use(middleware.InstallCheckMiddleware())
 	apiUploadRoutes.Use(middleware.APIKeyAuthMiddleware())
 	apiUploadRoutes.POST("/upload", fileController.UploadForApiKey)
 
 	// 随机图片API公开接口（不需要认证）
 	randomImageRoutes := r.Group("/api/v1/r")
+	randomImageRoutes.Use(middleware.InstallCheckMiddleware())
 	randomImageRoutes.GET("/:api_key", randomAPIController.GetRandomImage)
 }

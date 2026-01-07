@@ -3,7 +3,7 @@ import { useTexts } from '@/composables/useTexts'
 
 /* ==================== 功能特性 ==================== */
 
-/* API 测试功能特性 - 使用函数以支持i18n */
+/* API 测试功能特性- 使用函数以支持 i18n */
 export const getApiTesterFeatures = (): FeatureItem[] => {
   const { $t } = useTexts()
   return [
@@ -39,7 +39,12 @@ export const API_TESTER_FEATURES = getApiTesterFeatures()
 
 /* ==================== 站点配置 ==================== */
 
-export const SITE_DOMAIN = import.meta.env.VITE_SITE_DOMAIN || 'http://localhost:5173'
+export const SITE_DOMAIN =
+  (typeof window !== 'undefined'
+    ? ((window as any).__VITE_SITE_DOMAIN__ || (window as any).__VITE_RUNTIME_CONFIG__?.VITE_SITE_DOMAIN || '')
+    : '') ||
+  import.meta.env.VITE_SITE_DOMAIN ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
 
 /* ==================== 滚动配置 ==================== */
 
