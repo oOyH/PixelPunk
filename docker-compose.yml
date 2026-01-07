@@ -18,7 +18,7 @@ services:
     ports:
       - "${PORT:-9520}:9520"
     volumes:
-      - ./configs/config.docker.yaml:/app/configs/config.yaml:ro
+      - ./configs/config.yaml:/app/configs/config.yaml:ro
       - ${DATA_DIR:-./data}:/app/data
       - ${LOGS_DIR:-./logs}:/app/logs
       - ${UPLOADS_DIR:-./uploads}:/app/uploads
