@@ -25,5 +25,14 @@ func RegisterAdminContentReviewRoutes(r *gin.RouterGroup) {
 		reviewGroup.POST("/batch-review", adminController.BatchReview)
 
 		reviewGroup.DELETE("/files/:fileId/hard-delete", adminController.HardDeleteReviewedFile)
+
+		// 新增：批量硬删除
+		reviewGroup.POST("/batch-hard-delete", adminController.BatchHardDeleteReviewedFiles)
+
+		// 新增：恢复已软删除的文件
+		reviewGroup.POST("/files/:fileId/restore", adminController.RestoreReviewedFile)
+
+		// 新增：批量恢复已软删除的文件
+		reviewGroup.POST("/batch-restore", adminController.BatchRestoreReviewedFiles)
 	}
 }

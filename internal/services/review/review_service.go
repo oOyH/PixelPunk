@@ -289,6 +289,48 @@ func HardDeleteFile(fileID string, auditorID uint, reason string) error {
 	return RejectFileWithLog(fileID, auditorID, reason, true)
 }
 
+/* RestoreSoftDeletedFile 恢复已软删除的文件 */
+func RestoreSoftDeletedFile(fileID string, operatorID uint) error {
+	db := database.GetDB()
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		var file models.File
+		if err := tx.Where("id = ? AND status = ?", fileID, "deleted").First(&file).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("找不到已软删除的文件，请确认文件ID是否正确且处于软删除状态")
+			}
+			return fmt.Errorf("查询文件失败: %v", err)
+		}
+
+		// 恢复文件状态为 pending_review，让管理员重新审核
+		if err := tx.Model(&models.File{}).
+			Where("id = ?", fileID).
+			Updates(map[string]interface{}{
+				"status": "pending_review",
+			}).Error; err != nil {
+			return fmt.Errorf("恢复文件失败: %v", err)
+		}
+
+		// 创建恢复记录
+		reviewLog := &models.ReviewLog{
+			FileID:     fileID,
+			AuditorID:  operatorID,
+			UploaderID: file.UserID,
+			Action:     "approve", // 恢复操作视为批准
+			Reason:     "管理员恢复已删除文件",
+		}
+
+		if err := tx.Create(reviewLog).Error; err != nil {
+			return fmt.Errorf("创建恢复记录失败: %v", err)
+		}
+
+		// 发送恢复通知
+		go sendFileRestoreNotification(file.UserID, fileID, file.OriginalName, operatorID)
+
+		return nil
+	})
+}
+
 func getNSFWThreshold() (float64, error) {
 	// 直接从数据库读取配置（绕过缓存）
 	threshold := setting.GetFloatDirectFromDB("ai", "nsfw_threshold", 0.6)
@@ -365,5 +407,19 @@ func sendHardDeleteNotification(userID uint, fileID, fileName, reason string) {
 	if err := msgService.SendTemplateMessage(userID, common.MessageTypeFileHardDeletedByAdmin, variables); err != nil {
 		logger.Warn("发送文件硬删除消息失败: userID=%d, fileID=%s, error=%v", userID, fileID, err)
 	} else {
+	}
+}
+
+func sendFileRestoreNotification(userID uint, fileID, fileName string, operatorID uint) {
+	variables := map[string]interface{}{
+		"file_id":      fileID,
+		"file_name":    fileName,
+		"related_type": "file",
+		"related_id":   fileID,
+	}
+
+	msgService := messageService.GetMessageService()
+	if err := msgService.SendTemplateMessage(userID, common.MessageTypeContentReviewApproved, variables); err != nil {
+		logger.Warn("发送文件恢复消息失败: userID=%d, fileID=%s, error=%v", userID, fileID, err)
 	}
 }

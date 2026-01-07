@@ -319,8 +319,19 @@ func GetFileDetail(c *gin.Context) {
 		return
 	}
 
-	if !file.NSFW {
-		errors.HandleError(c, errors.New(errors.CodeInvalidParameter, "该文件不在审核队列中"))
+	// 修复：检查文件状态而非NSFW标志，允许查看待审核、已删除状态的文件详情
+	validStatuses := []string{"pending_review", "deleted", "pending_deletion"}
+	isValidStatus := false
+	for _, status := range validStatuses {
+		if file.Status == status {
+			isValidStatus = true
+			break
+		}
+	}
+
+	// 如果是正常状态但有NSFW标记，也允许查看
+	if !isValidStatus && !file.NSFW && file.Status != "active" {
+		errors.HandleError(c, errors.New(errors.CodeInvalidParameter, "该文件不在审核相关状态中"))
 		return
 	}
 
@@ -481,4 +492,114 @@ func HardDeleteReviewedFile(c *gin.Context) {
 		return
 	}
 	errors.ResponseSuccess(c, nil, "文件已彻底删除")
+}
+
+/* BatchFileIDsDTO 批量文件ID操作DTO */
+type BatchFileIDsDTO struct {
+	FileIDs []string `json:"file_ids" binding:"required,min=1"`
+}
+
+/* BatchHardDeleteReviewedFiles 批量硬删除已审核的文件 */
+func BatchHardDeleteReviewedFiles(c *gin.Context) {
+	req, err := common.ValidateRequest[BatchFileIDsDTO](c)
+	if err != nil {
+		errors.HandleError(c, err)
+		return
+	}
+
+	if len(req.FileIDs) > 100 {
+		errors.HandleError(c, errors.New(errors.CodeInvalidParameter, "批量操作最多支持100个文件"))
+		return
+	}
+
+	operatorID := middleware.GetCurrentUserID(c)
+	if operatorID == 0 {
+		errors.HandleError(c, errors.New(errors.CodeUnauthorized, "未找到当前用户信息"))
+		return
+	}
+
+	results := make(map[string]string)
+	successCount := 0
+	failCount := 0
+
+	for _, fileID := range req.FileIDs {
+		if err := review.HardDeleteSoftDeletedFile(fileID, operatorID); err != nil {
+			results[fileID] = err.Error()
+			failCount++
+		} else {
+			results[fileID] = "success"
+			successCount++
+		}
+	}
+
+	response := map[string]interface{}{
+		"success_count": successCount,
+		"fail_count":    failCount,
+		"results":       results,
+	}
+
+	errors.ResponseSuccess(c, response, "批量硬删除操作完成")
+}
+
+/* RestoreReviewedFile 恢复已软删除的文件 */
+func RestoreReviewedFile(c *gin.Context) {
+	fileID := c.Param("fileId")
+	if fileID == "" {
+		errors.HandleError(c, errors.New(errors.CodeInvalidParameter, "文件ID不能为空"))
+		return
+	}
+
+	operatorID := middleware.GetCurrentUserID(c)
+	if operatorID == 0 {
+		errors.HandleError(c, errors.New(errors.CodeUnauthorized, "未找到当前用户信息"))
+		return
+	}
+
+	if err := review.RestoreSoftDeletedFile(fileID, operatorID); err != nil {
+		errors.HandleError(c, errors.Wrap(err, errors.CodeInternal, "恢复文件失败"))
+		return
+	}
+	errors.ResponseSuccess(c, nil, "文件已恢复")
+}
+
+/* BatchRestoreReviewedFiles 批量恢复已软删除的文件 */
+func BatchRestoreReviewedFiles(c *gin.Context) {
+	req, err := common.ValidateRequest[BatchFileIDsDTO](c)
+	if err != nil {
+		errors.HandleError(c, err)
+		return
+	}
+
+	if len(req.FileIDs) > 100 {
+		errors.HandleError(c, errors.New(errors.CodeInvalidParameter, "批量操作最多支持100个文件"))
+		return
+	}
+
+	operatorID := middleware.GetCurrentUserID(c)
+	if operatorID == 0 {
+		errors.HandleError(c, errors.New(errors.CodeUnauthorized, "未找到当前用户信息"))
+		return
+	}
+
+	results := make(map[string]string)
+	successCount := 0
+	failCount := 0
+
+	for _, fileID := range req.FileIDs {
+		if err := review.RestoreSoftDeletedFile(fileID, operatorID); err != nil {
+			results[fileID] = err.Error()
+			failCount++
+		} else {
+			results[fileID] = "success"
+			successCount++
+		}
+	}
+
+	response := map[string]interface{}{
+		"success_count": successCount,
+		"fail_count":    failCount,
+		"results":       results,
+	}
+
+	errors.ResponseSuccess(c, response, "批量恢复操作完成")
 }

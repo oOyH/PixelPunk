@@ -96,7 +96,7 @@ export interface ReviewStats {
 export interface BatchReviewResult {
   success_count: number
   fail_count: number
-  results: string[]
+  results: Record<string, string> // 修复：后端返回的是 map[string]string
   delete_type?: string
 }
 

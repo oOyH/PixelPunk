@@ -88,4 +88,6 @@ deploy/
 
 # 其他
 .env
-.env.*
+.env.local
+.env.*.local
+# 保留 web/.env.production 用于前端构建
