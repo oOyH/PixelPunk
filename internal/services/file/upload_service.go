@@ -17,6 +17,7 @@ import (
 	"pixelpunk/pkg/utils"
 	"pixelpunk/pkg/vector"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -216,28 +217,37 @@ func saveFileData(ctx *UploadContext) error {
 	}
 
 	// 异步执行所有后处理操作，避免阻塞上传接口返回
-	go func() {
+	// 使用全局context支持优雅关闭
+	go func(serviceCtx context.Context, fileData models.File, uploadCtx *UploadContext) {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("[上传后处理] panic: %v, 文件ID: %s", r, file.ID)
+				logger.Error("[上传后处理] panic: %v, 文件ID: %s", r, fileData.ID)
 			}
 		}()
 
+		// 检查服务是否正在关闭
+		select {
+		case <-serviceCtx.Done():
+			logger.Info("[上传后处理] 服务正在关闭，跳过处理: %s", fileData.ID)
+			return
+		default:
+		}
+
 		if utils.GetAiAnalysisEnabled() {
-			if err := captureThumbnailBase64(ctx); err != nil {
-				logger.Warn("[上传后处理] 捕获缩略图base64数据失败: %v, file_id=%s", err, file.ID)
+			if err := captureThumbnailBase64(uploadCtx); err != nil {
+				logger.Warn("[上传后处理] 捕获缩略图base64数据失败: %v, file_id=%s", err, fileData.ID)
 			}
 
-			if err := ai.AddFileToQueue(*file); err != nil {
-				logger.Error("[上传后处理] 将文件加入AI处理队列失败，文件ID: %s, 错误: %v", file.ID, err)
+			if err := ai.AddFileToQueue(fileData); err != nil {
+				logger.Error("[上传后处理] 将文件加入AI处理队列失败，文件ID: %s, 错误: %v", fileData.ID, err)
 			}
 		}
 
-		if vector.IsVectorEnabled() && file.Description != "" {
-			vector.AddFileToVectorQueue(*file)
+		if vector.IsVectorEnabled() && fileData.Description != "" {
+			vector.AddFileToVectorQueue(fileData)
 		}
 
-	}()
+	}(GetServiceContext(), *file, ctx)
 
 	return nil
 }
@@ -252,12 +262,13 @@ func reuseAnalysisAndVectorForDuplicate(ctx *UploadContext) error {
 		clone := origAI
 		clone.ID = 0
 		clone.FileID = newID
-		_ = db.Where("file_id = ?", newID).Delete(&models.FileAIInfo{})
+		// 使用错误处理辅助函数记录但不中断
+		errors.LogAndIgnore(db.Where("file_id = ?", newID).Delete(&models.FileAIInfo{}).Error, "删除已有AI信息")
 		if err := db.Create(&clone).Error; err != nil {
 			logger.Warn("复制AI信息失败: %v", err)
 		}
 		if clone.Description != "" {
-			_ = db.Model(&models.File{}).Where("id = ?", newID).Update("description", clone.Description).Error
+			errors.LogAndIgnore(db.Model(&models.File{}).Where("id = ?", newID).Update("description", clone.Description).Error, "更新文件描述")
 		}
 	}
 
@@ -272,7 +283,7 @@ func reuseAnalysisAndVectorForDuplicate(ctx *UploadContext) error {
 				Source:      r.Source,
 				Confidence:  r.Confidence,
 			}
-			_ = db.Create(&nr).Error
+			errors.LogAndIgnore(db.Create(&nr).Error, "复制标签关联")
 		}
 	}
 
@@ -337,7 +348,7 @@ type BatchUploadResult struct {
 	Message      string
 }
 
-/* UploadFileBatch 批量上传文件（支持部分成功） */
+/* UploadFileBatch 批量上传文件（支持部分成功）- 并发优化版 */
 func UploadFileBatch(c *gin.Context, userID uint, files []*multipart.FileHeader, folderID, accessLevel string, optimize bool) (*BatchUploadResult, error) {
 	if err := validateBatchUploadFiles(files); err != nil {
 		return nil, err
@@ -356,21 +367,60 @@ func UploadFileBatch(c *gin.Context, userID uint, files []*multipart.FileHeader,
 
 	result := &BatchUploadResult{
 		TotalFiles:   len(files),
-		SuccessFiles: make([]*FileDetailResponse, 0),
+		SuccessFiles: make([]*FileDetailResponse, 0, len(files)),
 		Failures:     make([]BatchUploadFailure, 0),
 	}
 
+	// 并发上传结果结构
+	type uploadResult struct {
+		Index    int
+		Response *FileDetailResponse
+		Error    error
+		Filename string
+	}
+
+	resultChan := make(chan uploadResult, len(files))
+
+	// 限制并发数，避免资源耗尽
+	const maxConcurrent = 5
+	semaphore := make(chan struct{}, maxConcurrent)
+
+	var wg sync.WaitGroup
 	for index, file := range files {
-		resp, err := UploadFile(c, userID, file, folderID, accessLevel, optimize)
-		if err != nil {
+		wg.Add(1)
+		go func(idx int, f *multipart.FileHeader) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
+
+			resp, err := UploadFile(c, userID, f, folderID, accessLevel, optimize)
+			resultChan <- uploadResult{
+				Index:    idx,
+				Response: resp,
+				Error:    err,
+				Filename: f.Filename,
+			}
+		}(index, file)
+	}
+
+	// 等待所有goroutine完成后关闭channel
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果
+	for res := range resultChan {
+		if res.Error != nil {
 			result.Failures = append(result.Failures, BatchUploadFailure{
-				Filename: file.Filename,
-				Error:    err.Error(),
-				Index:    index,
+				Filename: res.Filename,
+				Error:    res.Error.Error(),
+				Index:    res.Index,
 			})
 			result.FailureCount++
 		} else {
-			result.SuccessFiles = append(result.SuccessFiles, resp)
+			result.SuccessFiles = append(result.SuccessFiles, res.Response)
 			result.SuccessCount++
 		}
 	}

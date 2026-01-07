@@ -16,8 +16,10 @@ type JWTClaims struct {
 }
 
 const (
-	defaultJWTSecret    = "defaultSecretKey" // 默认密钥（只在无法获取设置时使用）
-	defaultExpiresHours = 24                 // 默认24小时
+	// MinJWTSecretLength JWT密钥最小长度要求
+	MinJWTSecretLength = 32
+
+	defaultExpiresHours = 24 // 默认24小时
 )
 
 /* GetCurrentTimestamp 获取当前时间戳 */
@@ -27,8 +29,14 @@ func GetCurrentTimestamp() int64 {
 
 /* GenerateToken 生成JWT令牌 */
 func GenerateToken(userID uint, username string, role int, jwtSecret string, expiresHours int) (string, error) {
+	// 安全检查：不再使用默认密钥，强制要求配置
 	if jwtSecret == "" {
-		jwtSecret = defaultJWTSecret
+		return "", fmt.Errorf("JWT密钥未配置，拒绝生成Token")
+	}
+
+	// 安全检查：密钥长度验证
+	if len(jwtSecret) < MinJWTSecretLength {
+		return "", fmt.Errorf("JWT密钥长度不足，至少需要%d个字符", MinJWTSecretLength)
 	}
 
 	if expiresHours <= 0 {
@@ -54,8 +62,9 @@ func GenerateToken(userID uint, username string, role int, jwtSecret string, exp
 
 /* ParseToken 解析JWT令牌 */
 func ParseToken(tokenString string, jwtSecret string) (*JWTClaims, error) {
+	// 安全检查：不再使用默认密钥
 	if jwtSecret == "" {
-		jwtSecret = defaultJWTSecret
+		return nil, fmt.Errorf("JWT密钥未配置")
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {

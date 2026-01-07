@@ -112,6 +112,7 @@ func verifyShareAccess(c *gin.Context, shareKey string, fileID string) bool {
 		return false
 	}
 
+	// 检查文件是否直接在分享列表中
 	var count int64
 	database.DB.Model(&models.ShareItem{}).
 		Where("share_id = ? AND item_type = ? AND item_id = ?", share.ID, common.ShareItemTypeFile, fileID).
@@ -120,37 +121,81 @@ func verifyShareAccess(c *gin.Context, shareKey string, fileID string) bool {
 		return true
 	}
 
+	// 获取目标文件
 	var targetImage models.File
 	if err := database.DB.Where("id = ?", fileID).First(&targetImage).Error; err != nil {
 		return false
 	}
 
-	var folderShares []models.ShareItem
-	database.DB.Where("share_id = ? AND item_type = ?", share.ID, common.ShareItemTypeFolder).Find(&folderShares)
+	if targetImage.FolderID == "" || targetImage.FolderID == "0" {
+		return false
+	}
 
-	for _, folderShare := range folderShares {
-		if targetImage.FolderID == folderShare.ItemID {
+	// 优化：一次性获取所有分享的文件夹ID
+	var folderShareIDs []string
+	database.DB.Model(&models.ShareItem{}).
+		Where("share_id = ? AND item_type = ?", share.ID, common.ShareItemTypeFolder).
+		Pluck("item_id", &folderShareIDs)
+
+	if len(folderShareIDs) == 0 {
+		return false
+	}
+
+	// 优化：一次性获取文件的所有祖先文件夹ID，避免N+1查询
+	ancestorIDs := getAllAncestorFolderIDs(targetImage.FolderID)
+
+	// 构建分享文件夹ID集合用于快速查找
+	folderSet := make(map[string]bool, len(folderShareIDs))
+	for _, id := range folderShareIDs {
+		folderSet[id] = true
+	}
+
+	// 检查祖先链中是否有被分享的文件夹
+	for _, ancestorID := range ancestorIDs {
+		if folderSet[ancestorID] {
 			return true
-		}
-
-		if targetImage.FolderID != "" && targetImage.FolderID != "0" {
-			currentFolderID := targetImage.FolderID
-			for currentFolderID != "" && currentFolderID != "0" {
-				var folder models.Folder
-				if err := database.DB.Where("id = ?", currentFolderID).First(&folder).Error; err != nil {
-					break // 找不到文件夹，退出循环
-				}
-
-				if folder.ID == folderShare.ItemID {
-					return true
-				}
-
-				currentFolderID = folder.ParentID
-			}
 		}
 	}
 
 	return false
+}
+
+// getAllAncestorFolderIDs 获取文件夹的所有祖先ID（包含自身）
+// 优化版本：一次性加载所有文件夹构建父子映射，避免N+1查询
+func getAllAncestorFolderIDs(folderID string) []string {
+	if folderID == "" || folderID == "0" {
+		return nil
+	}
+
+	result := []string{folderID}
+
+	// 一次性加载所有文件夹的ID和ParentID
+	var folders []struct {
+		ID       string
+		ParentID string
+	}
+	database.DB.Model(&models.Folder{}).Select("id, parent_id").Find(&folders)
+
+	// 构建父子映射
+	parentMap := make(map[string]string, len(folders))
+	for _, f := range folders {
+		parentMap[f.ID] = f.ParentID
+	}
+
+	// 遍历祖先链
+	currentID := folderID
+	visited := make(map[string]bool) // 防止循环引用
+	for {
+		parentID, exists := parentMap[currentID]
+		if !exists || parentID == "" || parentID == "0" || visited[parentID] {
+			break
+		}
+		visited[parentID] = true
+		result = append(result, parentID)
+		currentID = parentID
+	}
+
+	return result
 }
 
 type FileAccessConfig struct {
@@ -229,7 +274,8 @@ func handleProtectedAccess(c *gin.Context, file models.File, isInternalRequest b
 }
 
 func handlePrivateAccess(c *gin.Context, file models.File) bool {
-	c.Header("Cache-Control", fmt.Sprintf("public, max-age=%d", CurrentFileAccessConfig.PublicCacheMaxAge))
+	// 安全修复：私有文件应使用私有缓存策略，避免被CDN缓存导致泄露
+	c.Header("Cache-Control", fmt.Sprintf("private, max-age=%d", CurrentFileAccessConfig.PrivateCacheMaxAge))
 
 	if file.Status == "pending_review" {
 		assets.ServeDefaultFile(c, assets.FileTypeReview)

@@ -387,3 +387,60 @@ func GetSafeError(err error) *Error {
 		Time:    time.Now(),
 	}
 }
+
+// ==================== 错误处理辅助函数 ====================
+
+// LogAndIgnore 记录错误日志但不中断流程，适用于非关键操作
+// 使用场景：日志记录、统计更新等失败不影响主流程的操作
+func LogAndIgnore(err error, operation string) {
+	if err != nil {
+		logger.Warn("[%s] 操作失败(已忽略): %v", operation, err)
+	}
+}
+
+// LogError 记录错误日志，适用于需要记录但可以继续的操作
+// 使用场景：后台任务失败、异步操作失败等
+func LogError(err error, operation string) {
+	if err != nil {
+		logger.Error("[%s] 操作失败: %v", operation, err)
+	}
+}
+
+// MustSucceed 关键操作必须成功，失败时panic
+// 使用场景：初始化配置、数据库连接等启动时必须成功的操作
+// 注意：仅在程序启动阶段使用，运行时不要使用
+func MustSucceed(err error, operation string) {
+	if err != nil {
+		panic(fmt.Sprintf("[%s] 关键操作失败: %v", operation, err))
+	}
+}
+
+// WrapIfError 如果有错误则包装，否则返回nil
+// 使用场景：需要添加上下文信息的错误传递
+func WrapIfError(err error, code ErrorCode, message string) error {
+	if err == nil {
+		return nil
+	}
+	return Wrap(err, code, message)
+}
+
+// IsCode 检查错误是否为指定错误码
+func IsCode(err error, code ErrorCode) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*Error); ok {
+		return e.Code == code
+	}
+	return false
+}
+
+// IsNotFound 检查是否为未找到错误
+func IsNotFound(err error) bool {
+	return IsCode(err, CodeNotFound) || IsCode(err, CodeFileNotFound) || IsCode(err, CodeUserNotFound)
+}
+
+// IsUnauthorized 检查是否为未授权错误
+func IsUnauthorized(err error) bool {
+	return IsCode(err, CodeUnauthorized) || IsCode(err, CodeInvalidAuthToken) || IsCode(err, CodeExpiredAuthToken)
+}
