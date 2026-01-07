@@ -93,7 +93,6 @@ RUN mkdir -p configs data logs uploads
 
 # 复制配置文件模板和启动脚本
 COPY configs/config.example.yaml ./configs/config.example.yaml
-COPY configs/config.docker.yaml ./configs/config.docker.yaml
 COPY docker-entrypoint.sh ./
 
 # 设置权限
