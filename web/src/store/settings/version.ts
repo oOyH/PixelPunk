@@ -8,7 +8,7 @@ import type { VersionSettings } from './types'
 export function useVersionSettingsModule() {
   const settings = ref<VersionSettings>({})
 
-  const currentVersion = computed(() => settings.value.current_version || '1.2.0')
+  const currentVersion = computed(() => settings.value.current_version || '1.2.1')
 
   const buildTime = computed(() => settings.value.build_time || '')
 

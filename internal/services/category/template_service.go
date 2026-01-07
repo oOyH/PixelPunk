@@ -254,10 +254,14 @@ func (s *TemplateService) ListTemplates(query TemplateListQuery) (*TemplateListR
 	if query.Size <= 0 {
 		query.Size = 20
 	}
-	if query.SortBy == "" {
+	// 安全的排序字段白名单
+	allowedSortFields := map[string]bool{
+		"sort_order": true, "name": true, "created_at": true, "updated_at": true, "use_count": true,
+	}
+	if query.SortBy == "" || !allowedSortFields[query.SortBy] {
 		query.SortBy = "sort_order"
 	}
-	if query.SortOrder == "" {
+	if query.SortOrder != "asc" && query.SortOrder != "desc" {
 		query.SortOrder = "asc"
 	}
 

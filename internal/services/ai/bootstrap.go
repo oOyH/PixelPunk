@@ -15,6 +15,7 @@ import (
 )
 
 var globalTaggingService *TaggingService
+var globalTaggingMutex sync.RWMutex // 保护 globalTaggingService 的并发访问
 var hooksRegistered = false
 
 var aiScanTimer *time.Timer
@@ -29,30 +30,34 @@ func RegisterAISettingHooks() {
 	setting.RegisterSettingChangeHandler("ai", "ai_enabled", func(value string) {
 		enabled := value != "" && value != "false" && value != "0" && value != "False" && value != "FALSE"
 
-		if enabled && globalTaggingService == nil {
+		svc := GetGlobalTaggingService()
+		if enabled && svc == nil {
 			if err := InitGlobalTaggingQueue(); err != nil {
 				return
 			}
-			if globalTaggingService != nil && !globalTaggingService.IsPaused() {
+			svc = GetGlobalTaggingService()
+			if svc != nil && !svc.IsPaused() {
 				go func() {
 					if n, err := EnqueueAllPending(1000); err == nil && n > 0 {
 					}
 				}()
 			}
-		} else if !enabled && globalTaggingService != nil {
-			globalTaggingService.Stop()
-			globalTaggingService = nil
+		} else if !enabled && svc != nil {
+			svc.Stop()
+			SetGlobalTaggingService(nil)
 		}
 	})
 
 	setting.RegisterSettingChangeHandler("ai", "ai_auto_processing_enabled", func(value string) {
 		enabled := value != "" && value != "false" && value != "0" && value != "False" && value != "FALSE"
 
-		if enabled && globalTaggingService == nil {
+		svc := GetGlobalTaggingService()
+		if enabled && svc == nil {
 			if err := InitGlobalTaggingQueue(); err != nil {
 				return
 			}
-			if globalTaggingService != nil {
+			svc = GetGlobalTaggingService()
+			if svc != nil {
 				go func() {
 					if n, err := EnqueueAllPending(1000); err == nil && n > 0 {
 					}
@@ -61,24 +66,25 @@ func RegisterAISettingHooks() {
 			return
 		}
 
-		if globalTaggingService == nil {
+		if svc == nil {
 			return
 		}
 		if enabled {
-			globalTaggingService.Resume()
+			svc.Resume()
 		} else {
-			globalTaggingService.Pause()
+			svc.Pause()
 		}
 	})
 
 	setting.RegisterSettingChangeHandler("ai", "ai_concurrency", func(value string) {
-		if globalTaggingService == nil {
+		svc := GetGlobalTaggingService()
+		if svc == nil {
 			return
 		}
 		// 直接从数据库读取配置（绕过缓存）
 		concurrency := setting.GetIntDirectFromDB("ai", "ai_concurrency", 3)
 		if concurrency > 0 {
-			_ = globalTaggingService.UpdateConcurrency(concurrency)
+			_ = svc.UpdateConcurrency(concurrency)
 		}
 	})
 
@@ -88,14 +94,16 @@ func RegisterAISettingHooks() {
 			return
 		}
 
-		if globalTaggingService == nil {
+		svc := GetGlobalTaggingService()
+		if svc == nil {
 			if err := InitGlobalTaggingQueue(); err != nil {
 				logger.Error("[AI服务] 初始化队列失败: %v", err)
 				return
 			}
+			svc = GetGlobalTaggingService()
 		}
 
-		if globalTaggingService != nil && !globalTaggingService.IsPaused() {
+		if svc != nil && !svc.IsPaused() {
 			aiScanMutex.Lock()
 			if aiScanTimer != nil {
 				aiScanTimer.Stop()
@@ -118,13 +126,19 @@ func RegisterAISettingHooks() {
 }
 
 func SetGlobalTaggingService(service *TaggingService) {
+	globalTaggingMutex.Lock()
+	defer globalTaggingMutex.Unlock()
 	globalTaggingService = service
 }
 
-func GetGlobalTaggingService() *TaggingService { return globalTaggingService }
+func GetGlobalTaggingService() *TaggingService {
+	globalTaggingMutex.RLock()
+	defer globalTaggingMutex.RUnlock()
+	return globalTaggingService
+}
 
 func InitGlobalTaggingQueue() error {
-	if globalTaggingService != nil {
+	if GetGlobalTaggingService() != nil {
 		return nil
 	}
 
@@ -225,16 +239,19 @@ func RecoverPendingOnStartup(limit int) (int, error) {
 }
 
 func RefreshGlobalConcurrency() error {
-	if globalTaggingService == nil {
+	svc := GetGlobalTaggingService()
+	if svc == nil {
 		return fmt.Errorf("全局TaggingService未初始化")
 	}
-	return globalTaggingService.RefreshConcurrencyFromConfig()
+	return svc.RefreshConcurrencyFromConfig()
 }
 
 func AddFileToQueue(file models.File) error {
-	if globalTaggingService == nil {
+	svc := GetGlobalTaggingService()
+	if svc == nil {
 		_ = InitGlobalTaggingQueue()
-		if globalTaggingService == nil {
+		svc = GetGlobalTaggingService()
+		if svc == nil {
 			return nil
 		}
 	}
@@ -246,22 +263,22 @@ func AddFileToQueue(file models.File) error {
 
 	if err := db.Model(&models.File{}).Where("id = ?", file.ID).
 		Updates(map[string]interface{}{
-			"ai_tagging_status": common.AITaggingStatusPending,
+			"ai_tagging_status":    common.AITaggingStatusPending,
 			"ai_last_heartbeat_at": time.Now(),
 		}).Error; err != nil {
 		logger.Error("更新文件AI状态失败: %v", err)
 	}
 
-	if globalTaggingService.taskQueue != nil {
-		if err := globalTaggingService.taskQueue.EnqueueUnique(file.ID, 0); err != nil {
-			if globalTaggingService.IsPaused() {
+	if svc.taskQueue != nil {
+		if err := svc.taskQueue.EnqueueUnique(file.ID, 0); err != nil {
+			if svc.IsPaused() {
 				return nil
 			}
-			globalTaggingService.ProcessSingleFile(file)
+			svc.ProcessSingleFile(file)
 			return nil
 		}
-		globalTaggingService.notifyQueueStatsChange()
-		if globalTaggingService.IsPaused() {
+		svc.notifyQueueStatsChange()
+		if svc.IsPaused() {
 			websocket.BroadcastToAdmins(ws.MessageTypeAnnouncement, map[string]interface{}{
 				"title":   "AI 队列暂停（已入队）",
 				"content": fmt.Sprintf("文件 %s 已加入AI队列。当前处于暂停状态，恢复后自动执行。", file.ID),
@@ -270,9 +287,9 @@ func AddFileToQueue(file models.File) error {
 		}
 		return nil
 	}
-	if globalTaggingService.IsPaused() {
+	if svc.IsPaused() {
 		return nil
 	}
-	globalTaggingService.ProcessSingleFile(file)
+	svc.ProcessSingleFile(file)
 	return nil
 }

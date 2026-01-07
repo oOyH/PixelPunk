@@ -85,43 +85,40 @@ func DeleteAnnouncement(id uint) error {
 func TogglePinAnnouncement(id uint) (*dto.AnnouncementResponseDTO, error) {
 	db := database.GetDB()
 
-	tx := db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
 	var announcement models.Announcement
-	if err := tx.First(&announcement, id).Error; err != nil {
-		tx.Rollback()
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("公告不存在")
+
+	// 使用 GORM Transaction 方法替代手动事务管理，确保 SQLite 兼容性
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&announcement, id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("公告不存在")
+			}
+			return fmt.Errorf("查询公告失败: %v", err)
 		}
-		return nil, fmt.Errorf("查询公告失败: %v", err)
-	}
 
-	newPinnedStatus := !announcement.IsPinned
+		newPinnedStatus := !announcement.IsPinned
 
-	// 如果要置顶此公告，先取消所有其他公告的置顶
-	if newPinnedStatus {
-		if err := tx.Model(&models.Announcement{}).
-			Where("id != ?", id).
-			Update("is_pinned", false).Error; err != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("取消其他公告置顶失败: %v", err)
+		// 如果要置顶此公告，先取消所有其他公告的置顶
+		if newPinnedStatus {
+			if err := tx.Model(&models.Announcement{}).
+				Where("id != ?", id).
+				Update("is_pinned", false).Error; err != nil {
+				return fmt.Errorf("取消其他公告置顶失败: %v", err)
+			}
 		}
+
+		if err := tx.Model(&announcement).Update("is_pinned", newPinnedStatus).Error; err != nil {
+			return fmt.Errorf("更新置顶状态失败: %v", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	if err := tx.Model(&announcement).Update("is_pinned", newPinnedStatus).Error; err != nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("更新置顶状态失败: %v", err)
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return nil, fmt.Errorf("提交事务失败: %v", err)
-	}
-
+	// 事务外重新查询最新数据
 	if err := db.First(&announcement, id).Error; err != nil {
 		return nil, fmt.Errorf("查询更新后的公告失败: %v", err)
 	}
