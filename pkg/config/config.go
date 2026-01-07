@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"pixelpunk/pkg/logger"
 	"reflect"
@@ -29,9 +30,10 @@ type Config struct {
 
 // AppConfig 应用基础配置
 type AppConfig struct {
-	Port      int    `yaml:"port" env:"PORT"`
-	Mode      string `yaml:"mode" env:"MODE"`
-	Namespace string `yaml:"ns" env:"NS"` // 命名空间，用于缓存隔离，默认: pixelpunk
+	Port           int      `yaml:"port" env:"PORT"`
+	Mode           string   `yaml:"mode" env:"MODE"`
+	Namespace      string   `yaml:"ns" env:"NS"`                           // 命名空间，用于缓存隔离，默认: pixelpunk
+	TrustedProxies []string `yaml:"trusted_proxies" env:"TRUSTED_PROXIES"` // 信任的代理 IP 列表，支持 CIDR 格式
 }
 
 // DatabaseConfig 数据库配置
@@ -139,7 +141,6 @@ func loadConfigFromFile(cfg *Config) {
 		return
 	}
 
-
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		logger.Warn("无法解析配置文件: %v，将使用默认配置和环境变量", err)
 	}
@@ -210,6 +211,18 @@ func setFieldValue(field reflect.Value, value string) {
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(value)
+	case reflect.Slice:
+		// 目前仅支持 []string（例如 upload.allowed_types、app.trusted_proxies）
+		if field.Type().Elem().Kind() != reflect.String {
+			return
+		}
+
+		items := parseEnvStringSlice(value)
+		slice := reflect.MakeSlice(field.Type(), 0, len(items))
+		for _, item := range items {
+			slice = reflect.Append(slice, reflect.ValueOf(item))
+		}
+		field.Set(slice)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			field.SetInt(intValue)
@@ -227,6 +240,39 @@ func setFieldValue(field reflect.Value, value string) {
 			field.SetBool(boolValue)
 		}
 	}
+}
+
+func parseEnvStringSlice(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+
+	// 支持 JSON 数组，如 ["a","b"]
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		var items []string
+		if err := json.Unmarshal([]byte(value), &items); err == nil {
+			out := make([]string, 0, len(items))
+			for _, item := range items {
+				item = strings.TrimSpace(item)
+				if item != "" {
+					out = append(out, item)
+				}
+			}
+			return out
+		}
+	}
+
+	// 兼容逗号分隔，如 a,b,c 或 a, b, c
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func GetConfig() *Config {

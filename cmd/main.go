@@ -10,10 +10,12 @@ import (
 	"time"
 )
 
-const appVersion = "1.1.0"
+// Version 应用版本号，可通过 ldflags 在编译时注入
+// 构建命令示例: go build -ldflags="-X main.Version=v1.2.0" ./cmd/main.go
+var Version = "1.1.0"
 
 func main() {
-	app := bootstrap.NewApp(appVersion)
+	app := bootstrap.NewApp(Version)
 
 	if err := app.Initialize(); err != nil {
 		logger.Fatal("应用初始化失败: %v", err)

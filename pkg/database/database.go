@@ -119,6 +119,8 @@ func InitDB() {
 			if configExists {
 				log.Warn("配置文件存在但MySQL配置不完整，请检查配置文件")
 				log.Warn("如需重新配置，请删除 configs/config.yaml 后重启应用")
+				installManager.SetInstallMode(true)
+				installManager.SetSystemInstalled(false)
 				return
 			} else {
 				log.Info("MySQL数据库配置不完整，进入安装模式")
@@ -132,6 +134,8 @@ func InitDB() {
 			if configExists {
 				log.Warn("配置文件存在但SQLite路径未配置，请检查配置文件")
 				log.Warn("如需重新配置，请删除 configs/config.yaml 后重启应用")
+				installManager.SetInstallMode(true)
+				installManager.SetSystemInstalled(false)
 				return
 			} else {
 				log.Info("SQLite数据库路径未配置，进入安装模式")
@@ -152,6 +156,8 @@ func InitDB() {
 				log.Info("SQLite数据库文件不存在，尝试创建: %s", dbPath)
 				if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 					log.Warn("创建数据库目录失败: %v", err)
+					installManager.SetInstallMode(true)
+					installManager.SetSystemInstalled(false)
 					return
 				}
 			} else {
@@ -165,6 +171,8 @@ func InitDB() {
 		log.Warn("不支持的数据库类型: %s", cfg.Type)
 		if configExists {
 			log.Warn("如需重新配置，请删除 configs/config.yaml 后重启应用")
+			installManager.SetInstallMode(true)
+			installManager.SetSystemInstalled(false)
 			return
 		} else {
 			log.Info("进入安装模式")
@@ -189,6 +197,8 @@ func InitDB() {
 			log.Warn("数据库连接失败: %v", err)
 			log.Warn("请检查数据库服务是否运行，或配置是否正确")
 			log.Warn("如需重新配置，请删除 configs/config.yaml 后重启应用")
+			installManager.SetInstallMode(true)
+			installManager.SetSystemInstalled(false)
 			return
 		} else {
 			log.Warn("数据库连接失败，进入安装模式: %v", err)
@@ -229,6 +239,8 @@ func InitDB() {
 				installManager.SetSystemInstalled(true)
 				return
 			}
+			installManager.SetInstallMode(true)
+			installManager.SetSystemInstalled(false)
 			return
 		} else {
 			log.Warn("数据库迁移失败，进入安装模式: %v", err)

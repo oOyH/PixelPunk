@@ -56,12 +56,14 @@ RUN rm -rf internal/static/dist
 COPY --from=frontend-builder /app/web/dist ./internal/static/dist
 
 # 构建后端（启用 CGO 支持 WebP，使用缓存加速编译）
+# 版本号通过 ARG 传入，可在构建时指定
+ARG BUILD_VERSION=docker
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 \
     GOOS=linux \
     go build \
-    -ldflags="-w -s -X main.Version=docker" \
+    -ldflags="-w -s -X main.Version=${BUILD_VERSION}" \
     -o pixelpunk \
     ./cmd/main.go
 

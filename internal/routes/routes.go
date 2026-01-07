@@ -48,6 +48,9 @@ func RegisterRoutes(r *gin.Engine) {
 	version.Use(middleware.JWTAuth())
 	version.Use(middleware.TrackUserActivity())
 
+	// 头像上传（需要认证）
+	version.POST("/avatar/upload", middleware.RequireAuth(), fileController.UploadAvatar)
+
 	commonRoutes := version.Group("/common")
 	RegisterCommonRoutes(commonRoutes)
 
@@ -127,6 +130,7 @@ func RegisterRoutes(r *gin.Engine) {
 	{
 		fileIDGroup := r.Group("/f")
 		fileIDGroup.Use(middleware.FileInfoExtractorMiddleware())
+		fileIDGroup.Use(middleware.OptionalJWTAuth())
 		fileIDGroup.Use(middleware.FileAccessControlMiddleware())
 		fileIDGroup.Use(middleware.BandwidthLimitMiddleware())
 		fileIDGroup.Use(middleware.BandwidthTrackingMiddleware())
@@ -135,6 +139,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 		thumbGroup := r.Group("/t")
 		thumbGroup.Use(middleware.FileInfoExtractorMiddleware())
+		thumbGroup.Use(middleware.OptionalJWTAuth())
 		thumbGroup.Use(middleware.FileAccessControlMiddleware())
 		thumbGroup.Use(middleware.BandwidthLimitMiddleware())
 		thumbGroup.Use(middleware.BandwidthTrackingMiddleware())
@@ -143,13 +148,13 @@ func RegisterRoutes(r *gin.Engine) {
 
 		shortLinkGroup := r.Group("/s")
 		shortLinkGroup.Use(middleware.FileInfoExtractorMiddleware())
+		shortLinkGroup.Use(middleware.OptionalJWTAuth())
 		shortLinkGroup.Use(middleware.FileAccessControlMiddleware())
 		shortLinkGroup.Use(middleware.BandwidthLimitMiddleware())
 		shortLinkGroup.Use(middleware.BandwidthTrackingMiddleware())
 		shortLinkGroup.GET("/:shortURL", fileController.ServeFileByShortURL)
 	}
 
-	r.POST("/api/v1/avatar/upload", middleware.RequireAuth(), fileController.UploadAvatar)
 	r.GET("/file/avatar/:fileName", fileController.ServeAvatarFile)
 
 	r.GET("/file/admin/:fileName", fileController.ServeAdminFile)

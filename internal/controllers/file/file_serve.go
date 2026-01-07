@@ -242,13 +242,18 @@ func DownloadFile(c *gin.Context) {
 		return
 	}
 
+	// 在 goroutine 外提取值，避免数据竞争
+	// Gin 官方警告：不要在 goroutine 中直接使用 *gin.Context
+	clientIP := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+
 	go func() {
 		downloadLog := &models.FileDownloadLog{
 			UserID:    currentUserID, // 用户ID（公开文件下载时可能为0）
 			FileID:    fileID,
 			FileSize:  file.Size,
-			IPAddress: c.ClientIP(),
-			UserAgent: c.GetHeader("User-Agent"),
+			IPAddress: clientIP,
+			UserAgent: userAgent,
 		}
 		if err := database.DB.Create(downloadLog).Error; err != nil {
 			logger.Error("记录下载日志失败: %v", err)
@@ -265,40 +270,63 @@ func DownloadFile(c *gin.Context) {
 
 	// 设置正确的Content-Disposition头，支持中文文件名
 	c.Header("Content-Disposition", utils.SetContentDispositionFilename(fileName))
-	c.Header("Accept-Ranges", "bytes")
 
 	switch {
 	case isLocal:
 		filePath := result.(string)
 
-		// 检查文件是否为ASCII格式，如果是则转换后返回
-		if fileData, err := os.ReadFile(filePath); err == nil {
-			// 检查是否为真正的ASCII数组格式 (如 "[60, 63, 120, ...]")
-			isAsciiArray := false
-			if len(fileData) > 10 && fileData[0] == '[' {
-				// 进一步检查是否包含数字和逗号的模式
-				str := string(fileData[:100]) // 检查前100个字符
-				if strings.Contains(str, ", ") && (strings.Contains(str, "60") || strings.Contains(str, "255")) {
-					isAsciiArray = true
-				}
-			}
+		// 获取文件信息，避免大文件全量读取导致 OOM
+		fileInfo, statErr := os.Stat(filePath)
+		if statErr != nil {
+			assets.ServeDefaultFile(c, assets.FileTypeNotFound)
+			return
+		}
 
-			if isAsciiArray {
+		// 设置正确的 Content-Type
+		contentType := filesvc.GetContentTypeByFormat(file.Format)
+		c.Header("Content-Type", contentType)
+
+		// 大文件（>10MB）直接流式传输，跳过 ASCII 检测
+		const maxCheckSize = 10 * 1024 * 1024 // 10MB
+		if fileInfo.Size() > maxCheckSize {
+			c.File(filePath)
+			return
+		}
+
+		// 小文件：只读取头部检测是否为 ASCII 数组格式
+		f, openErr := os.Open(filePath)
+		if openErr != nil {
+			c.File(filePath)
+			return
+		}
+
+		// 读取文件头部进行格式检测
+		header := make([]byte, 256)
+		n, _ := f.Read(header)
+		f.Close()
+
+		// 检测是否为 ASCII 数组格式（如 "[60, 63, 120, ...]"）
+		isAsciiArray := false
+		if n > 10 && header[0] == '[' {
+			str := string(header[:n])
+			if strings.Contains(str, ", ") && (strings.Contains(str, "60") || strings.Contains(str, "255")) {
+				isAsciiArray = true
+			}
+		}
+
+		// 仅对确认的 ASCII 数组格式进行全量转换（这类文件通常很小）
+		if isAsciiArray {
+			fileData, readErr := os.ReadFile(filePath)
+			if readErr == nil {
 				normalizedData := adapter.NormalizePossiblyTextualBytes(fileData, "[DOWNLOAD]")
 				if len(normalizedData) != len(fileData) {
-					// 根据格式设置正确的Content-Type（保持DB格式）
-					contentType := filesvc.GetContentTypeByFormat(file.Format)
-					c.Header("Content-Type", contentType)
 					c.Data(http.StatusOK, contentType, normalizedData)
 					return
 				}
 			}
-
-			// 设置正确的Content-Type（保持DB格式）
-			contentType := filesvc.GetContentTypeByFormat(file.Format)
-			c.Header("Content-Type", contentType)
 		}
 
+		// 正常文件直接流式返回
 		c.File(filePath)
 	case isProxy:
 		proxyResp := result.(*filesvc.ProxyResponse)

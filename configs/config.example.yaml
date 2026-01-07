@@ -10,6 +10,14 @@ app:
   port: 9520
   mode: "release"
   ns: "PixelPunk"
+  # 信任的代理 IP 列表，用于正确获取客户端真实 IP
+  # 支持 CIDR 格式，如 "10.0.0.0/8"、"172.16.0.0/12"
+  # 默认值：["127.0.0.1", "::1"]
+  trusted_proxies:
+    - "127.0.0.1"
+    - "::1"
+    # - "10.0.0.0/8"      # 内网网段示例
+    # - "172.16.0.0/12"   # Docker 网段示例
 
 database:
   type: ""                    # mysql 或 sqlite

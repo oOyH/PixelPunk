@@ -252,12 +252,8 @@ func handleFileAccessLevel(c *gin.Context, file models.File, isInternalRequest b
 }
 
 func handleProtectedAccess(c *gin.Context, file models.File, isInternalRequest bool) bool {
-	if !isInternalRequest {
-		assets.ServeDefaultFile(c, assets.FileTypeUnauthorized)
-		return false
-	}
-
-	if CanUserAccessProtectedFile(c, file.UserID) {
+	// 场景1：内部请求（来自配置的 BaseURL）+ 已登录用户
+	if isInternalRequest && CanUserAccessProtectedFile(c, file.UserID) {
 		c.Header("Cache-Control", "private, max-age=3600")
 
 		if file.Status == "pending_review" {
@@ -269,7 +265,68 @@ func handleProtectedAccess(c *gin.Context, file models.File, isInternalRequest b
 		return true
 	}
 
+	// 场景2：外部直链请求，尝试通过 Cookie 进行身份验证
+	// 这允许用户通过直链访问自己的 protected 文件（如浏览器新标签页打开）
+	if !isInternalRequest {
+		if tryAuthenticateFromCookie(c, file.UserID) {
+			c.Header("Cache-Control", "private, max-age=3600")
+
+			if file.Status == "pending_review" {
+				assets.ServeDefaultFile(c, assets.FileTypeReview)
+				return true
+			}
+
+			c.Next()
+			return true
+		}
+	}
+
+	// 场景3：内部请求但用户无权限
+	if isInternalRequest {
+		// 未登录或无权限
+		assets.ServeDefaultFile(c, assets.FileTypeUnauthorized)
+		return false
+	}
+
+	// 默认拒绝
 	assets.ServeDefaultFile(c, assets.FileTypeUnauthorized)
+	return false
+}
+
+// tryAuthenticateFromCookie 尝试通过 Cookie 中的 JWT 进行身份验证
+// 用于外部直链访问 protected 文件的场景
+func tryAuthenticateFromCookie(c *gin.Context, fileUserID uint) bool {
+	// 尝试从 Cookie 获取 token
+	tokenString, err := c.Cookie("token")
+	if err != nil || tokenString == "" {
+		return false
+	}
+
+	// 获取 JWT 密钥
+	jwtSecret := getJWTSecret()
+	if jwtSecret == "" {
+		return false
+	}
+
+	// 验证 token
+	claims, err := auth.VerifyTokenValid(tokenString, jwtSecret)
+	if err != nil {
+		return false
+	}
+
+	// 禁用用户直接拒绝（与 JWTAuth 一致）
+	if !checkUserActive(claims) {
+		return false
+	}
+
+	// 检查权限：文件所有者或管理员可访问
+	if claims.UserID == fileUserID {
+		return true
+	}
+	if claims.Role == common.UserRoleAdmin || claims.Role == common.UserRoleSuperAdmin {
+		return true
+	}
+
 	return false
 }
 

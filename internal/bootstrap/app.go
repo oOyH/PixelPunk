@@ -87,7 +87,17 @@ func (app *App) configureMiddleware() {
 	app.Engine.Use(middlewareInternal.CORSMiddleware())
 	app.Engine.Use(gin.Recovery())
 	app.Engine.Use(errors.ErrorHandler())
-	app.Engine.SetTrustedProxies([]string{"127.0.0.1", "localhost"})
+
+	// 配置信任的代理 IP，支持从配置文件读取
+	// 默认值：本地回环地址（IPv4 和 IPv6）
+	trustedProxies := config.GetConfig().App.TrustedProxies
+	if len(trustedProxies) == 0 {
+		trustedProxies = []string{"127.0.0.1", "::1"}
+	}
+	if err := app.Engine.SetTrustedProxies(trustedProxies); err != nil {
+		logger.Warn("设置信任代理失败: %v，将使用默认配置", err)
+		app.Engine.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	}
 }
 
 func (app *App) Start() error {

@@ -381,13 +381,18 @@ func DownloadSharedFile(c *gin.Context) {
 		return
 	}
 
+	// 在 goroutine 外提取值，避免数据竞争
+	// Gin 官方警告：不要在 goroutine 中直接使用 *gin.Context
+	clientIP := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+
 	go func() {
 		downloadLog := &models.FileDownloadLog{
 			UserID:    0, // 分享下载设置为0，表示游客下载
 			FileID:    fileID,
 			FileSize:  file.Size,
-			IPAddress: c.ClientIP(),
-			UserAgent: c.GetHeader("User-Agent"),
+			IPAddress: clientIP,
+			UserAgent: userAgent,
 			ShareKey:  shareKey, // 记录分享密钥
 		}
 		if err := database.DB.Create(downloadLog).Error; err != nil {
@@ -404,15 +409,16 @@ func DownloadSharedFile(c *gin.Context) {
 
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", utils.SetContentDispositionFilename(fileName))
-	c.Header("Content-Length", fmt.Sprintf("%d", file.Size))
-	c.Header("Accept-Ranges", "bytes")
 
 	switch {
 	case isLocal:
+		// 仅本地文件支持 Range；由 http.ServeFile 自动设置 Accept-Ranges/Content-Length
 		c.File(result.(string))
 	case isProxy:
 		proxyResp := result.(*filesvc.ProxyResponse)
 		defer proxyResp.Content.Close()
+		// 非本地流式下载不支持 Range，避免误导客户端
+		c.Header("Content-Length", fmt.Sprintf("%d", file.Size))
 		c.Status(http.StatusOK)
 		io.Copy(c.Writer, proxyResp.Content)
 	default:
@@ -423,6 +429,8 @@ func DownloadSharedFile(c *gin.Context) {
 			return
 		}
 		defer fileReader.Close()
+		// 非本地流式下载不支持 Range，避免误导客户端
+		c.Header("Content-Length", fmt.Sprintf("%d", file.Size))
 		c.Status(http.StatusOK)
 		io.Copy(c.Writer, fileReader)
 	}
