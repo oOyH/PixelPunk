@@ -36,6 +36,43 @@ import (
 
 type SetupController struct{}
 
+// DatabaseConfig 数据库配置结构体
+type DatabaseConfig struct {
+	Type     string `json:"type"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+}
+
+// RedisConfig Redis配置结构体
+type RedisConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
+}
+
+// VectorConfig 向量数据库配置结构体
+type VectorConfig struct {
+	QdrantURL     string `json:"qdrant_url"`
+	QdrantTimeout int    `json:"qdrant_timeout"`
+	UseBuiltin    bool   `json:"use_builtin"`
+	HTTPPort      int    `json:"http_port"`
+	GRPCPort      int    `json:"grpc_port"`
+}
+
+// InstallRequest 安装请求结构体
+type InstallRequest struct {
+	Database      DatabaseConfig `json:"database"`
+	Redis         RedisConfig    `json:"redis"`
+	Vector        VectorConfig   `json:"vector"`
+	AdminUsername string         `json:"admin_username" binding:"required"`
+	AdminPassword string         `json:"admin_password" binding:"required"`
+}
+
 func (s *SetupController) GetStatus(c *gin.Context) {
 	installManager := common.GetInstallManager()
 	status := installManager.GetStatus()
@@ -88,32 +125,7 @@ func (s *SetupController) Install(c *gin.Context) {
 	configPreset := common.IsConfigPreset()
 	isPresetMode := configPreset && deployMode != "standalone"
 
-	var req struct {
-		Database struct {
-			Type     string `json:"type"`
-			Host     string `json:"host"`
-			Port     int    `json:"port"`
-			Username string `json:"username"`
-			Password string `json:"password"`
-			Name     string `json:"name"`
-			Path     string `json:"path"`
-		} `json:"database"`
-		Redis struct {
-			Host     string `json:"host"`
-			Port     int    `json:"port"`
-			Password string `json:"password"`
-			DB       int    `json:"db"`
-		} `json:"redis"`
-		Vector struct {
-			QdrantURL     string `json:"qdrant_url"`
-			QdrantTimeout int    `json:"qdrant_timeout"`
-			UseBuiltin    bool   `json:"use_builtin"`
-			HTTPPort      int    `json:"http_port"`
-			GRPCPort      int    `json:"grpc_port"`
-		} `json:"vector"`
-		AdminUsername string `json:"admin_username" binding:"required"`
-		AdminPassword string `json:"admin_password" binding:"required"`
-	}
+	var req InstallRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errors.HandleError(c, errors.New(errors.CodeValidationFailed, "参数错误: "+err.Error()))
@@ -161,7 +173,7 @@ func (s *SetupController) Install(c *gin.Context) {
 			return
 		}
 
-		if err := writeConfigFileSimple(req.Database.Type, req.Database.Host, req.Database.Port, req.Database.Username, req.Database.Password, req.Database.Name, req.Database.Path, req.Redis.Host, req.Redis.Port, req.Redis.Password, req.Redis.DB); err != nil {
+		if err := writeConfigFile(req.Database, req.Redis); err != nil {
 			errors.HandleError(c, errors.New(errors.CodeInternal, "写入配置文件失败: "+err.Error()))
 			return
 		}
@@ -223,34 +235,9 @@ func (s *SetupController) Install(c *gin.Context) {
 	}, userMessage)
 }
 
-func writeConfigFile(req struct {
-	Database struct {
-		Type     string `json:"type" binding:"required"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-	} `json:"database" binding:"required"`
-	Redis struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Password string `json:"password"`
-		DB       int    `json:"db"`
-	} `json:"redis"`
-	Vector struct {
-		QdrantURL     string `json:"qdrant_url"`
-		QdrantTimeout int    `json:"qdrant_timeout"`
-		UseBuiltin    bool   `json:"use_builtin"`
-		HTTPPort      int    `json:"http_port"`
-		GRPCPort      int    `json:"grpc_port"`
-	} `json:"vector"`
-	AdminUsername string `json:"admin_username" binding:"required"`
-	AdminPassword string `json:"admin_password" binding:"required"`
-}) error {
-	redisHost := req.Redis.Host
-	redisPort := req.Redis.Port
+func writeConfigFile(dbConfig DatabaseConfig, redisConfig RedisConfig) error {
+	redisHost := redisConfig.Host
+	redisPort := redisConfig.Port
 	if redisHost == "" {
 		redisHost = "localhost"
 	}
@@ -272,7 +259,7 @@ func writeConfigFile(req struct {
 	}
 
 	if configPath != "" {
-		return updateExistingConfigFile(configPath, req, redisHost, redisPort)
+		return updateExistingConfigFile(configPath, dbConfig, redisConfig, redisHost, redisPort)
 	}
 
 	configPath = "configs/config.yaml"
@@ -280,35 +267,10 @@ func writeConfigFile(req struct {
 		configPath = "config.yaml"
 	}
 
-	return createNewConfigFile(configPath, req, redisHost, redisPort)
+	return createNewConfigFile(configPath, dbConfig, redisHost, redisPort, redisConfig.Password, redisConfig.DB)
 }
 
-func updateExistingConfigFile(configPath string, req struct {
-	Database struct {
-		Type     string `json:"type" binding:"required"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-	} `json:"database" binding:"required"`
-	Redis struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Password string `json:"password"`
-		DB       int    `json:"db"`
-	} `json:"redis"`
-	Vector struct {
-		QdrantURL     string `json:"qdrant_url"`
-		QdrantTimeout int    `json:"qdrant_timeout"`
-		UseBuiltin    bool   `json:"use_builtin"`
-		HTTPPort      int    `json:"http_port"`
-		GRPCPort      int    `json:"grpc_port"`
-	} `json:"vector"`
-	AdminUsername string `json:"admin_username" binding:"required"`
-	AdminPassword string `json:"admin_password" binding:"required"`
-}, redisHost string, redisPort int) error {
+func updateExistingConfigFile(configPath string, dbCfg DatabaseConfig, redisCfg RedisConfig, redisHost string, redisPort int) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("读取配置文件失败: %v", err)
@@ -324,16 +286,16 @@ func updateExistingConfigFile(configPath string, req struct {
 	}
 	dbConfig := existingConfig["database"].(map[string]interface{})
 
-	dbConfig["type"] = req.Database.Type
-	if req.Database.Type == "mysql" {
-		dbConfig["host"] = req.Database.Host
-		dbConfig["port"] = req.Database.Port
-		dbConfig["username"] = req.Database.Username
-		dbConfig["password"] = req.Database.Password
-		dbConfig["name"] = req.Database.Name
+	dbConfig["type"] = dbCfg.Type
+	if dbCfg.Type == "mysql" {
+		dbConfig["host"] = dbCfg.Host
+		dbConfig["port"] = dbCfg.Port
+		dbConfig["username"] = dbCfg.Username
+		dbConfig["password"] = dbCfg.Password
+		dbConfig["name"] = dbCfg.Name
 		delete(dbConfig, "path")
-	} else if req.Database.Type == "sqlite" {
-		dbConfig["path"] = req.Database.Path
+	} else if dbCfg.Type == "sqlite" {
+		dbConfig["path"] = dbCfg.Path
 		delete(dbConfig, "host")
 		delete(dbConfig, "port")
 		delete(dbConfig, "username")
@@ -347,8 +309,8 @@ func updateExistingConfigFile(configPath string, req struct {
 	redisConfig := existingConfig["redis"].(map[string]interface{})
 	redisConfig["host"] = redisHost
 	redisConfig["port"] = redisPort
-	redisConfig["password"] = req.Redis.Password
-	redisConfig["db"] = req.Redis.DB
+	redisConfig["password"] = redisCfg.Password
+	redisConfig["db"] = redisCfg.DB
 
 	updatedData, err := yaml.Marshal(existingConfig)
 	if err != nil {
@@ -358,35 +320,10 @@ func updateExistingConfigFile(configPath string, req struct {
 	return os.WriteFile(configPath, updatedData, 0600)
 }
 
-func createNewConfigFile(configPath string, req struct {
-	Database struct {
-		Type     string `json:"type" binding:"required"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-	} `json:"database" binding:"required"`
-	Redis struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Password string `json:"password"`
-		DB       int    `json:"db"`
-	} `json:"redis"`
-	Vector struct {
-		QdrantURL     string `json:"qdrant_url"`
-		QdrantTimeout int    `json:"qdrant_timeout"`
-		UseBuiltin    bool   `json:"use_builtin"`
-		HTTPPort      int    `json:"http_port"`
-		GRPCPort      int    `json:"grpc_port"`
-	} `json:"vector"`
-	AdminUsername string `json:"admin_username" binding:"required"`
-	AdminPassword string `json:"admin_password" binding:"required"`
-}, redisHost string, redisPort int) error {
+func createNewConfigFile(configPath string, dbCfg DatabaseConfig, redisHost string, redisPort int, redisPassword string, redisDB int) error {
 	var configContent string
 
-	switch req.Database.Type {
+	switch dbCfg.Type {
 	case "mysql":
 		configContent = fmt.Sprintf(`# 应用基本配置
 app:
@@ -415,15 +352,15 @@ cors:
   allowed_origins:
     - "*"
 `,
-			req.Database.Host,
-			req.Database.Port,
-			req.Database.Username,
-			req.Database.Password,
-			req.Database.Name,
+			dbCfg.Host,
+			dbCfg.Port,
+			dbCfg.Username,
+			dbCfg.Password,
+			dbCfg.Name,
 			redisHost,
 			redisPort,
-			req.Redis.Password,
-			req.Redis.DB,
+			redisPassword,
+			redisDB,
 		)
 	case "sqlite":
 		configContent = fmt.Sprintf(`# 应用基本配置
@@ -449,104 +386,14 @@ cors:
   allowed_origins:
     - "*"
 `,
-			req.Database.Path,
+			dbCfg.Path,
 			redisHost,
 			redisPort,
-			req.Redis.Password,
-			req.Redis.DB,
+			redisPassword,
+			redisDB,
 		)
 	default:
-		return fmt.Errorf("不支持的数据库类型: %s", req.Database.Type)
-	}
-
-	return os.WriteFile(configPath, []byte(configContent), 0600)
-}
-
-// writeConfigFileSimple 简化版配置文件写入(用于非预设模式)
-func writeConfigFileSimple(dbType, dbHost string, dbPort int, dbUsername, dbPassword, dbName, dbPath string, redisHost string, redisPort int, redisPassword string, redisDB int) error {
-	if redisHost == "" {
-		redisHost = "localhost"
-	}
-	if redisPort == 0 {
-		redisPort = 6379
-	}
-
-	configPaths := []string{
-		"configs/config.yaml",
-		"config.yaml",
-	}
-
-	var configPath string
-	for _, path := range configPaths {
-		if _, err := os.Stat(path); err == nil {
-			configPath = path
-			break
-		}
-	}
-
-	if configPath == "" {
-		configPath = "configs/config.yaml"
-		if err := os.MkdirAll("configs", 0755); err != nil {
-			configPath = "config.yaml"
-		}
-	}
-
-	var configContent string
-	switch dbType {
-	case "mysql":
-		configContent = fmt.Sprintf(`# 应用基本配置
-app:
-  port: 9520
-  mode: "debug"
-
-# 数据库配置
-database:
-  type: "mysql"
-  host: "%s"
-  port: %d
-  username: "%s"
-  password: "%s"
-  name: "%s"
-
-# Redis配置
-redis:
-  host: "%s"
-  port: %d
-  password: "%s"
-  db: %d
-
-# 跨域(CORS)配置
-cors:
-  enabled: true
-  allowed_origins:
-    - "*"
-`, dbHost, dbPort, dbUsername, dbPassword, dbName, redisHost, redisPort, redisPassword, redisDB)
-	case "sqlite":
-		configContent = fmt.Sprintf(`# 应用基本配置
-app:
-  port: 9520
-  mode: "debug"
-
-# 数据库配置
-database:
-  type: "sqlite"
-  path: "%s"
-
-# Redis配置
-redis:
-  host: "%s"
-  port: %d
-  password: "%s"
-  db: %d
-
-# 跨域(CORS)配置
-cors:
-  enabled: true
-  allowed_origins:
-    - "*"
-`, dbPath, redisHost, redisPort, redisPassword, redisDB)
-	default:
-		return fmt.Errorf("不支持的数据库类型: %s", dbType)
+		return fmt.Errorf("不支持的数据库类型: %s", dbCfg.Type)
 	}
 
 	return os.WriteFile(configPath, []byte(configContent), 0600)
@@ -609,13 +456,7 @@ func sanitizeDBError(err error) string {
 	return errStr
 }
 
-func initializeSystemServices(vectorConfig struct {
-	QdrantURL     string `json:"qdrant_url"`
-	QdrantTimeout int    `json:"qdrant_timeout"`
-	UseBuiltin    bool   `json:"use_builtin"`
-	HTTPPort      int    `json:"http_port"`
-	GRPCPort      int    `json:"grpc_port"`
-}) error {
+func initializeSystemServices(vectorCfg VectorConfig) error {
 	cache.InitCache()
 	runMigrations()
 
@@ -635,23 +476,23 @@ func initializeSystemServices(vectorConfig struct {
 			qdrantTimeout = 30
 		}
 	} else {
-		if vectorConfig.UseBuiltin {
-			actualHTTPPort := vectorConfig.HTTPPort
+		if vectorCfg.UseBuiltin {
+			actualHTTPPort := vectorCfg.HTTPPort
 			if actualHTTPPort <= 0 {
 				actualHTTPPort = 6333
 			}
 			qdrantURL = fmt.Sprintf("http://localhost:%d", actualHTTPPort)
 		} else {
-			qdrantURL = vectorConfig.QdrantURL
+			qdrantURL = vectorCfg.QdrantURL
 		}
-		qdrantTimeout = vectorConfig.QdrantTimeout
+		qdrantTimeout = vectorCfg.QdrantTimeout
 	}
 
 	writeVectorConfigToDatabase(qdrantURL, qdrantTimeout)
 
-	if vectorConfig.UseBuiltin {
+	if vectorCfg.UseBuiltin {
 		go func() {
-			startBuiltinQdrant(vectorConfig.HTTPPort, vectorConfig.GRPCPort)
+			startBuiltinQdrant(vectorCfg.HTTPPort, vectorCfg.GRPCPort)
 		}()
 		time.Sleep(2 * time.Second)
 	}
