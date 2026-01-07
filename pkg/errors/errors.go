@@ -53,6 +53,7 @@ const (
 	CodeEmailServiceError ErrorCode = 3002
 	CodeSMSServiceError   ErrorCode = 3003
 	CodePaymentError      ErrorCode = 3004
+	CodeThirdPartyAuth    ErrorCode = 3005 // 第三方存储认证失败（非用户登录态）
 
 	CodeFileTooLarge            ErrorCode = 4000
 	CodeFileTypeNotSupported    ErrorCode = 4001
@@ -140,6 +141,7 @@ var errorCodeToHTTPStatus = map[ErrorCode]int{
 	CodeEmailServiceError: 500,
 	CodeSMSServiceError:   500,
 	CodePaymentError:      500,
+	CodeThirdPartyAuth:    400, // 第三方认证失败返回400，避免触发前端登录跳转
 
 	CodeFileTooLarge:            400,
 	CodeFileTypeNotSupported:    400,
@@ -224,6 +226,7 @@ var errorCodeToMessage = map[ErrorCode]string{
 	CodeEmailServiceError: "邮件服务异常",
 	CodeSMSServiceError:   "短信服务异常",
 	CodePaymentError:      "支付服务异常",
+	CodeThirdPartyAuth:    "第三方存储认证失败",
 
 	CodeFileTooLarge:            "文件文件过大",
 	CodeFileTypeNotSupported:    "不支持的文件类型",

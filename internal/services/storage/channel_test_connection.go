@@ -79,11 +79,11 @@ func mapConnectivityError(channelType string, err error) error {
 	}
 	s := err.Error()
 	if strings.Contains(s, "AccessDenied") || strings.Contains(s, "Forbidden") || strings.Contains(s, "SignatureDoesNotMatch") {
-		return errors.New(errors.CodeUnauthorized, "认证失败：请检查凭据/签名/权限设置")
+		return errors.New(errors.CodeThirdPartyAuth, "认证失败：请检查凭据/签名/权限设置")
 	}
 	lower := strings.ToLower(s)
 	if strings.Contains(s, "SignatureDoesNotMatch") {
-		return errors.New(errors.CodeUnauthorized, "S3签名不匹配：请检查 AccessKey/SecretKey 是否正确、path-style 选择是否正确、以及自定义域/endpoint 与 region 是否匹配")
+		return errors.New(errors.CodeThirdPartyAuth, "S3签名不匹配：请检查 AccessKey/SecretKey 是否正确、path-style 选择是否正确、以及自定义域/endpoint 与 region 是否匹配")
 	}
 	if strings.Contains(s, "PermanentRedirect") || strings.Contains(s, "301") || strings.Contains(lower, "moved permanently") || strings.Contains(lower, "wrong region") {
 		return errors.New(errors.CodeInvalidParameter, "S3区域不匹配：请将配置的 Region 与存储桶实际区域保持一致，或使用对应区域的 Endpoint")
@@ -96,10 +96,10 @@ func mapConnectivityError(channelType string, err error) error {
 	}
 	if channelType == "azureblob" {
 		if strings.Contains(s, "AuthenticationFailed") || strings.Contains(s, "AuthorizationFailure") {
-			return errors.New(errors.CodeUnauthorized, "Azure认证失败：请检查 account_name/account_key 是否正确，若使用 SAS 请确认有效期与权限")
+			return errors.New(errors.CodeThirdPartyAuth, "Azure认证失败：请检查 account_name/account_key 是否正确，若使用 SAS 请确认有效期与权限")
 		}
 		if strings.Contains(s, "AuthorizationPermissionMismatch") || strings.Contains(s, "InsufficientAccountPermissions") {
-			return errors.New(errors.CodeForbidden, "Azure权限不足：请为容器授予写入权限，或使用具备写权限的密钥/SAS")
+			return errors.New(errors.CodeThirdPartyAuth, "Azure权限不足：请为容器授予写入权限，或使用具备写权限的密钥/SAS")
 		}
 		if strings.Contains(lower, "container") && strings.Contains(lower, "not exist") {
 			return errors.New(errors.CodeNotFound, "容器不存在：请检查 container 名称是否正确，或先在 Azure 门户中创建")
