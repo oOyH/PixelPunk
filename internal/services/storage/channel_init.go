@@ -79,15 +79,22 @@ func CreateDefaultLocalChannel() (*models.StorageChannel, error) {
 	return newChannel, nil
 }
 
-
 func MigrateLocalChannels() error {
-	return database.GetDB().Model(&models.StorageChannel{}).
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+	return db.Model(&models.StorageChannel{}).
 		Where("type = ? AND is_local = ?", "local", false).
 		Update("is_local", true).Error
 }
 
 func CheckAndInitDefaultChannel() error {
 	db := database.GetDB()
+	if db == nil {
+		logger.Warn("数据库连接不可用，跳过存储渠道初始化")
+		return nil
+	}
 
 	if err := MigrateLocalChannels(); err != nil {
 		logger.Error(fmt.Sprintf("迁移本地存储渠道失败: %v", err))
