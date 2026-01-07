@@ -148,3 +148,31 @@ func GetMultipleSettingsDirectFromDB(group string, keys []string) (map[string]in
 
 	return result, nil
 }
+
+// UpdateSettingDirectToDB 直接更新数据库中的设置值（绕过缓存，用于启动时同步）
+func UpdateSettingDirectToDB(group, key, value string) error {
+	db := database.GetDB()
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+
+	// 序列化为 JSON 格式存储
+	valueJSON, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("序列化值失败: %v", err)
+	}
+
+	result := db.Table("setting").
+		Where("`key` = ? AND `group` = ?", key, group).
+		Update("value", string(valueJSON))
+
+	if result.Error != nil {
+		return fmt.Errorf("更新设置失败: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("设置 %s.%s 不存在", group, key)
+	}
+
+	return nil
+}

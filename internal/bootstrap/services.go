@@ -15,12 +15,29 @@ import (
 func InitAllServices(appVersion string) {
 	user.InitUserService()
 	setting.InitSettingService()
+	syncVersionToDatabase(appVersion)
 	initMessageService()
 	initVectorEngine()
 	ai.RegisterAISettingHooks()
 	vectorSvc.RegisterVectorConfigHooks()
 	if err := ai.InitGlobalTaggingQueue(); err != nil {
 		logger.Warn("AI打标队列初始化警告: %v", err)
+	}
+}
+
+/* syncVersionToDatabase 同步应用版本号到数据库 */
+func syncVersionToDatabase(appVersion string) {
+	if appVersion == "" {
+		return
+	}
+
+	currentDBVersion := setting.GetStringDirectFromDB("version", "current_version", "")
+	if currentDBVersion != appVersion {
+		if err := setting.UpdateSettingDirectToDB("version", "current_version", appVersion); err != nil {
+			logger.Warn("同步版本号到数据库失败: %v", err)
+		} else {
+			logger.Info("版本号已同步: %s -> %s", currentDBVersion, appVersion)
+		}
 	}
 }
 
@@ -50,12 +67,10 @@ func initVectorEngine() {
 		return
 	}
 
-
 	if err := vectorSvc.InitGlobalVectorQueue(); err != nil {
 		logger.Error("向量队列初始化失败: %v", err)
 		return
 	}
-
 
 	if queueSvc := vectorSvc.GetGlobalVectorQueueService(); queueSvc != nil {
 		go func() {
