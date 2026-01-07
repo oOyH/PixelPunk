@@ -1,0 +1,28 @@
+# PixelPunk Docker 专用配置
+# 此文件用于 docker-compose 部署
+
+app:
+  port: 9520
+  mode: "release"
+  ns: "PixelPunk"
+
+database:
+  type: "mysql"
+  host: "pixelpunk-mysql"
+  port: 3306
+  username: "pixelpunk"
+  password: "pixelpunk_pass"
+  name: "pixelpunk"
+  path: ""
+
+redis:
+  host: "pixelpunk-redis"
+  port: 6379
+  password: ""
+  db: 0
+
+vector:
+  enabled: true
+  qdrant_url: "http://pixelpunk-qdrant:6333"
+  timeout: 30
+

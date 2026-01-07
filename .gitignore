@@ -67,9 +67,10 @@ app.db
 # 配置文件
 # ============================================
 
-# 环境配置（只保留示例配置）
+# 环境配置（只保留示例配置和Docker配置）
 configs/*.yaml
 !configs/config.example.yaml
+!configs/config.docker.yaml
 
 # 环境变量文件（后端仅保留示例）
 .env
