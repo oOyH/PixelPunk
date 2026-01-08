@@ -5,7 +5,6 @@
   import { useLayoutStore } from '@/store/layout'
   import { useAppearanceSettings } from '@/composables/useAppearanceSettings'
   import type { SupportedLocale } from '@/locales/zh-CN'
-  import { StorageUtil } from '@/utils/storage'
   import { useToast } from '@/components/Toast/useToast'
   import SettingCard from '@/components/SettingCard/index.vue'
 
@@ -43,16 +42,43 @@
   const selectedLocale = ref<SupportedLocale>('zh-CN')
   const selectedLayoutMode = ref<string>('top')
 
+  const getStoredStringPreference = (key: string): string | null => {
+    if (typeof window === 'undefined') {
+      return null
+    }
+
+    const raw = window.localStorage.getItem(key)
+    if (!raw) {
+      return null
+    }
+
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as { data?: unknown }
+        if (parsed && typeof parsed === 'object' && typeof parsed.data === 'string') {
+          // Migrate legacy StorageUtil wrapper -> plain string, to keep stores consistent.
+          try {
+            window.localStorage.setItem(key, parsed.data)
+          } catch (_error) {}
+          return parsed.data
+        }
+      } catch (_error) {}
+    }
+
+    return raw
+  }
+
   /* ==================== 加载偏好设置 ==================== */
   const loadPreferences = () => {
-    const savedVisualTheme = StorageUtil.get<string>('visual-theme')
+    const savedVisualTheme = getStoredStringPreference('visual-theme')
     if (savedVisualTheme && allThemes.includes(savedVisualTheme as VisualTheme)) {
       selectedVisualTheme.value = savedVisualTheme as VisualTheme
     } else {
       selectedVisualTheme.value = selectedTheme.value
     }
 
-    const savedTextTheme = StorageUtil.get<string>('text-theme')
+    const savedTextTheme = getStoredStringPreference('text-theme')
     if (savedTextTheme && ['normal', 'cyber'].includes(savedTextTheme)) {
       selectedTextStyle.value = savedTextTheme
       setTextTheme(savedTextTheme as 'normal' | 'cyber')
@@ -83,7 +109,6 @@
     try {
       selectedTextStyle.value = style
       setTextTheme(style as 'normal' | 'cyber')
-      StorageUtil.set('text-theme', style)
       toast.success($t('settings.preferences.notifications.success'))
     } catch (_error) {
       toast.error($t('settings.preferences.notifications.failure'))

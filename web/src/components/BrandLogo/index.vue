@@ -35,7 +35,7 @@
     if (version && version !== '1.0.0') {
       return `VERSION v${version}`
     }
-    return 'VERSION v1.2.0'
+    return 'VERSION v1.2.2'
   })
 
   const dynamicSiteName = computed(() => {

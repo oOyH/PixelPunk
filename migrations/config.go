@@ -135,7 +135,7 @@ var DefaultSettings = struct {
 	},
 
 	Version: VersionSettings{
-		CurrentVersion:  "1.2.1",
+		CurrentVersion:  "1.2.2",
 		BuildTime:       "",
 		GitCommit:       "",
 		UpdateAvailable: false,

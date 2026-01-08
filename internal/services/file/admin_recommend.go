@@ -52,7 +52,12 @@ func getRandomFileGlobal() (*AdminFileDetailResponse, error) {
 	}
 	if totalCount == 0 {
 		// 该场景在 controller 层会被视为“成功但无数据”，避免前端产生 404 控制台报错
-		return nil, errors.New(errors.CodeServiceUnavailable, "暂无推荐文件")
+		return nil, &errors.Error{
+			Code:    errors.CodeServiceUnavailable,
+			Message: "暂无推荐文件",
+			Detail:  "暂无推荐文件",
+			Time:    time.Now(),
+		}
 	}
 	offset := rand.Int63n(totalCount)
 	if err := database.DB.

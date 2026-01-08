@@ -30,7 +30,7 @@ export async function initializeSettings(group: SettingGroup, $t?: TranslationFu
 
     return data.settings
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (import.meta.env.DEV) {
       const errorMsg = $t ? $t('api.settings.errors.loadFailed', { group }) : `Failed to load ${group} settings:`
       logger.error(errorMsg, error)
     }

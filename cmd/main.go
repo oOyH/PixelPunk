@@ -12,7 +12,7 @@ import (
 
 // Version 应用版本号，可通过 ldflags 在编译时注入
 // 构建命令示例: go build -ldflags="-X main.Version=v1.2.0" ./cmd/main.go
-var Version = "1.2.1"
+var Version = "1.2.2"
 
 func main() {
 	app := bootstrap.NewApp(Version)

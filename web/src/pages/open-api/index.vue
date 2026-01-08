@@ -2,6 +2,7 @@
   import { computed, onMounted, ref } from 'vue'
   import { useToast } from '@/components/Toast/useToast'
   import { useTexts } from '@/composables/useTexts'
+  import { API_BASE_URL } from '@/constants/env'
   import * as openApiService from '@/api/openapi'
   import type { RandomImageAPI } from '@/api/openapi'
 
@@ -128,7 +129,8 @@
   }
 
   const getApiUrl = (apiKey: string) => {
-    return `${window.location.origin}/api/v1/r/${apiKey}`
+    const base = (API_BASE_URL || '/api/v1').replace(/\/$/, '')
+    return new URL(`${base}/r/${apiKey}`, window.location.origin).toString()
   }
 
   onMounted(() => {

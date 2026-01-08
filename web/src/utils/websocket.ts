@@ -3,6 +3,8 @@
  * 实现与后端WebSocket连接的实时通信
 
 /* WebSocket 消息类型 */
+import { API_BASE_URL } from '@/constants/env'
+
 export enum MessageType {
   QUEUE_STATS = 'queue_stats',
   VECTOR_STATS = 'vector_stats',
@@ -372,7 +374,7 @@ export class WebSocketManager {
   }
 
   private log(...args: any[]): void {
-    if (this.options.debug && process.env.NODE_ENV !== 'production') {
+    if (this.options.debug && import.meta.env.DEV) {
       import('@/utils/system/logger').then(({ logger }) => {
         logger.debug('[WebSocketManager]', args.join(' '))
       })
@@ -383,17 +385,12 @@ export class WebSocketManager {
 let globalWebSocketManager: WebSocketManager | null = null
 
 function getWebSocketURL(): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const hostname = window.location.hostname
-
-  let host: string
-  if (process.env.NODE_ENV === 'production') {
-    host = window.location.host
-  } else {
-    host = `${hostname}:9520`
-  }
-
-  return `${protocol}//${host}/api/v1/admin/ws/admin`
+  const baseUrl = new URL(API_BASE_URL || '/api/v1', window.location.origin)
+  baseUrl.protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+  baseUrl.pathname = baseUrl.pathname.replace(/\/$/, '') + '/admin/ws/admin'
+  baseUrl.search = ''
+  baseUrl.hash = ''
+  return baseUrl.toString()
 }
 
 export function getWebSocketManager(token?: string): WebSocketManager {

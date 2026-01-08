@@ -263,9 +263,17 @@ func GetPublicFileCount(c *gin.Context) {
 func GetRandomRecommendedFile(c *gin.Context) {
 	imageInfo, err := filesvc.GetRandomRecommendedFile()
 	if err != nil {
-		// 特殊处理：当没有推荐文件时，返回特殊的成功响应而不是错误
-		if err.(*errors.Error).Code == errors.CodeServiceUnavailable {
-			errors.ResponseSuccess(c, nil, err.Error())
+		// 特殊处理：当没有推荐文件时，返回成功但无数据，避免前端产生 404 控制台报错
+		if errors.Is(err, errors.CodeServiceUnavailable) {
+			message := "暂无推荐文件"
+			if e, ok := err.(*errors.Error); ok {
+				if e.Detail != "" {
+					message = e.Detail
+				} else if e.Message != "" {
+					message = e.Message
+				}
+			}
+			errors.ResponseSuccess(c, nil, message)
 			return
 		}
 		errors.HandleError(c, err)
