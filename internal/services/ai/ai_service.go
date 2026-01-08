@@ -190,6 +190,16 @@ func processAIResponse(tx *gorm.DB, file models.File, aiResp *AIFileResponse, co
 		return err
 	}
 
+	// AI 推荐结果写回（仅当 AI 判定为推荐时写入，避免覆盖管理员手动推荐/取消）
+	if result != nil && result.IsRecommended {
+		if err := tx.Model(&models.File{}).Where("id = ?", file.ID).Update("is_recommended", true).Error; err != nil {
+			if isDeadlockError(err) && !fileExists(tx, file.ID) {
+				return errFileDeleted
+			}
+			logger.Warn("更新文件推荐状态失败: %v", err)
+		}
+	}
+
 	// 处理标签 - 根据配置决定是否为敏感内容生成标签
 	if !contentDetectionEnabled || !result.ContentSafety.IsNSFW {
 		// 如果没有启用内容检测或不是违规内容，正常处理标签
@@ -311,7 +321,7 @@ func propagateAIToDuplicates(originalID string) {
 			clone.FileID = dup.ID
 			// 使用 UPSERT 操作，避免并发时的重复插入问题
 			_ = db.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "file_id"}},
+				Columns:   []clause.Column{{Name: "file_id"}},
 				UpdateAll: true,
 			}).Create(&clone).Error
 			if clone.Description != "" {

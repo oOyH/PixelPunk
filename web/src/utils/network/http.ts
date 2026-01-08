@@ -151,6 +151,7 @@ interface PendingRequest {
   params: string
   cancelToken: CancelTokenSource
   timestamp: number
+  timeout: number
 }
 
 const REQUEST_DEDUP_WHITELIST = [
@@ -191,6 +192,7 @@ const addPendingRequest = (config: AxiosRequestConfig): void => {
       params: generateRequestKey(config),
       cancelToken,
       timestamp: Date.now(),
+      timeout: typeof config.timeout === 'number' && config.timeout > 0 ? config.timeout : REQUEST_TIMEOUT.DEFAULT,
     })
     return
   }
@@ -213,6 +215,7 @@ const addPendingRequest = (config: AxiosRequestConfig): void => {
     params: generateRequestKey(config),
     cancelToken,
     timestamp: Date.now(),
+    timeout: typeof config.timeout === 'number' && config.timeout > 0 ? config.timeout : REQUEST_TIMEOUT.DEFAULT,
   })
 }
 
@@ -237,10 +240,9 @@ const removePendingRequest = (config: AxiosRequestConfig): void => {
 
 const cleanupTimeoutRequests = (): void => {
   const now = Date.now()
-  const timeout = REQUEST_TIMEOUT.UPLOAD // 上传超时时间
 
   for (const [key, request] of pendingRequests.entries()) {
-    if (now - request.timestamp > timeout) {
+    if (now - request.timestamp > request.timeout) {
       getTranslation('utils.http.requestTimeout').then((msg) => request.cancelToken.cancel(msg))
       pendingRequests.delete(key)
     }
@@ -276,11 +278,33 @@ const apiBaseUrl = getApiBaseUrl()
 
 const instance: AxiosInstance = axios.create({
   baseURL: apiBaseUrl,
-  timeout: REQUEST_TIMEOUT.UPLOAD, // 上传请求超时时间
+  timeout: REQUEST_TIMEOUT.DEFAULT,
   headers: {
     'Content-Type': 'application/json',
   },
 })
+
+const resolveRequestTimeout = (config: AxiosRequestConfig): number => {
+  const url = String(config.url || '').toLowerCase()
+  const responseType = String(config.responseType || '').toLowerCase()
+
+  if (responseType === 'blob' || responseType === 'arraybuffer') {
+    return REQUEST_TIMEOUT.DOWNLOAD
+  }
+
+  // Upload endpoints / multipart requests can take much longer
+  if (url.includes('/upload') || url.includes('/chunked/upload')) {
+    return REQUEST_TIMEOUT.UPLOAD
+  }
+
+  const contentTypeHeader = (config.headers as any)?.['Content-Type'] ?? (config.headers as any)?.['content-type']
+  const contentType = String(contentTypeHeader || '').toLowerCase()
+  if (contentType.includes('multipart/form-data')) {
+    return REQUEST_TIMEOUT.UPLOAD
+  }
+
+  return REQUEST_TIMEOUT.DEFAULT
+}
 
 function createApiResult<T = any>(success: boolean, code: number, message: string, data: T, request_id?: string): ApiResult<T> {
   return {
@@ -304,6 +328,14 @@ function createErrorResult(code: number, message: string, request_id?: string): 
 
 instance.interceptors.request.use(
   (config: ExtendedAxiosRequestConfig) => {
+    // Keep general API requests responsive; only extend timeout for known long-running requests (e.g. uploads/downloads)
+    const resolvedTimeout = resolveRequestTimeout(config)
+    if (config.timeout === undefined || Number.isNaN(config.timeout)) {
+      config.timeout = resolvedTimeout
+    } else if (config.timeout === REQUEST_TIMEOUT.DEFAULT && resolvedTimeout !== REQUEST_TIMEOUT.DEFAULT) {
+      config.timeout = resolvedTimeout
+    }
+
     addPendingRequest(config)
 
     const token = StorageUtil.get<string>(TOKEN_KEY)

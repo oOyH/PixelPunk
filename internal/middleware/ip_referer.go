@@ -113,13 +113,10 @@ func isFromBaseUrl(clientIP string, domain string) bool {
 		return true
 	}
 
-	ips, err := net.LookupIP(baseUrlDomain)
-	if err == nil {
-		for _, ip := range ips {
-			if ip.To4() != nil && ip.String() == clientIP {
-				return true
-			}
-		}
+	// Avoid per-request DNS lookups (can be very slow under cross-domain/proxy setups).
+	// "localhost" is treated as local access without resolution.
+	if strings.EqualFold(baseUrlDomain, "localhost") && (clientIP == "127.0.0.1" || clientIP == "::1") {
+		return true
 	}
 
 	return false

@@ -170,9 +170,6 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@vueup/vue-quill')) {
                 return 'vue-quill'
               }
-              if (id.includes('md-editor-v3')) {
-                return 'editor-markdown'
-              }
               if (id.includes('pinyin-pro')) {
                 return 'pinyin'
               }

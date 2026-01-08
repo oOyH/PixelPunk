@@ -234,12 +234,19 @@ func saveFileData(ctx *UploadContext) error {
 		}
 
 		if utils.GetAiAnalysisEnabled() {
-			if err := captureThumbnailBase64(uploadCtx); err != nil {
-				logger.Warn("[上传后处理] 捕获缩略图base64数据失败: %v, file_id=%s", err, fileData.ID)
-			}
+			// 当前 AI pipeline 为图片视觉识别（image_url/base64）。为避免非图片文件读取大体积 base64
+			// 或进入队列后失败，这里仅对图片类型文件入队处理。
+			isImage := strings.EqualFold(fileData.FileType, "image") ||
+				strings.HasPrefix(strings.ToLower(fileData.Mime), "image/") ||
+				strings.HasPrefix(strings.ToLower(fileData.MimeType), "image/")
+			if isImage {
+				if err := captureThumbnailBase64(uploadCtx); err != nil {
+					logger.Warn("[上传后处理] 捕获缩略图base64数据失败: %v, file_id=%s", err, fileData.ID)
+				}
 
-			if err := ai.AddFileToQueue(fileData); err != nil {
-				logger.Error("[上传后处理] 将文件加入AI处理队列失败，文件ID: %s, 错误: %v", fileData.ID, err)
+				if err := ai.AddFileToQueue(fileData); err != nil {
+					logger.Error("[上传后处理] 将文件加入AI处理队列失败，文件ID: %s, 错误: %v", fileData.ID, err)
+				}
 			}
 		}
 

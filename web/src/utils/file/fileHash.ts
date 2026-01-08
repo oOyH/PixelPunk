@@ -1,9 +1,21 @@
-import SparkMD5 from 'spark-md5'
-import { uploadWorkerManager } from '@/workers/uploadWorkerManager'
 import { useTextThemeStore } from '@/store/textTheme'
 
 /* 判断是否应该使用Worker（大于2MB的文件使用Worker，避免主线程阻塞） */
 const shouldUseWorker = (fileSize: number): boolean => fileSize > 2 * 1024 * 1024 // 2MB
+
+let sparkMD5ModulePromise: Promise<typeof import('spark-md5')> | null = null
+async function getSparkMD5() {
+  sparkMD5ModulePromise ??= import('spark-md5')
+  return (await sparkMD5ModulePromise).default as unknown as {
+    ArrayBuffer: new () => { append: (data: ArrayBuffer) => void; end: () => string }
+  }
+}
+
+let uploadWorkerManagerPromise: Promise<typeof import('@/workers/uploadWorkerManager')> | null = null
+async function getUploadWorkerManager() {
+  uploadWorkerManagerPromise ??= import('@/workers/uploadWorkerManager')
+  return (await uploadWorkerManagerPromise).uploadWorkerManager
+}
 
 /**
  * 格式化翻译文本，替换参数
@@ -19,6 +31,7 @@ function formatText(template: string, params: Record<string, string | number>): 
 export async function calculateFileMD5(file: File, onProgress?: (progress: number) => void): Promise<string> {
   if (shouldUseWorker(file.size)) {
     try {
+      const uploadWorkerManager = await getUploadWorkerManager()
       const hash = await uploadWorkerManager.calculateMD5(file, onProgress)
       return hash
     } catch {}
@@ -27,7 +40,8 @@ export async function calculateFileMD5(file: File, onProgress?: (progress: numbe
   return calculateFileMD5InMainThread(file, onProgress)
 }
 
-function calculateFileMD5InMainThread(file: File, onProgress?: (progress: number) => void): Promise<string> {
+async function calculateFileMD5InMainThread(file: File, onProgress?: (progress: number) => void): Promise<string> {
+  const SparkMD5 = await getSparkMD5()
   return new Promise((resolve, reject) => {
     const store = useTextThemeStore()
     const spark = new SparkMD5.ArrayBuffer()
@@ -100,10 +114,12 @@ function calculateFileMD5InMainThread(file: File, onProgress?: (progress: number
 export async function calculateChunkMD5(chunk: Blob): Promise<string> {
   if (chunk.size > 1024 * 1024) {
     try {
+      const uploadWorkerManager = await getUploadWorkerManager()
       return await uploadWorkerManager.calculateChunkMD5(chunk)
     } catch {}
   }
 
+  const SparkMD5 = await getSparkMD5()
   return new Promise((resolve, reject) => {
     const store = useTextThemeStore()
     const spark = new SparkMD5.ArrayBuffer()

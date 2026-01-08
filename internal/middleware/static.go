@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"io/fs"
@@ -62,6 +63,26 @@ func calculateETag(file fs.File) (string, error) {
 	return etag, nil
 }
 
+func shouldGzipStaticResponse(c *gin.Context, ext string) bool {
+	// Only gzip safe, text-based static assets. Avoid gzip when Range is present.
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		return false
+	}
+	if c.GetHeader("Range") != "" {
+		return false
+	}
+	if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+		return false
+	}
+
+	switch ext {
+	case ".js", ".css", ".html", ".svg", ".json", ".map", ".txt", ".xml":
+		return true
+	default:
+		return false
+	}
+}
+
 func StaticFileHandler(subFS fs.FS) gin.HandlerFunc {
 	cacheableExts := getCacheableExtensions()
 
@@ -88,6 +109,19 @@ func StaticFileHandler(subFS fs.FS) gin.HandlerFunc {
 			c.Writer.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
 			c.Writer.Header().Set("Pragma", "no-cache")
 
+			if shouldGzipStaticResponse(c, ".html") {
+				c.Writer.Header().Set("Content-Encoding", "gzip")
+				c.Writer.Header().Add("Vary", "Accept-Encoding")
+				c.Writer.WriteHeader(http.StatusOK)
+				if c.Request.Method == http.MethodHead {
+					return
+				}
+				gz, _ := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+				defer gz.Close()
+				_, _ = io.Copy(gz, indexFile)
+				return
+			}
+
 			content, readErr := io.ReadAll(indexFile)
 			if readErr != nil {
 				c.Status(http.StatusInternalServerError)
@@ -95,7 +129,7 @@ func StaticFileHandler(subFS fs.FS) gin.HandlerFunc {
 			}
 
 			c.Writer.WriteHeader(http.StatusOK)
-			c.Writer.Write(content)
+			_, _ = c.Writer.Write(content)
 			return
 		}
 		defer file.Close()
@@ -107,6 +141,7 @@ func StaticFileHandler(subFS fs.FS) gin.HandlerFunc {
 		}
 
 		ext := strings.ToLower(filepath.Ext(reqPath))
+		gzipEnabled := shouldGzipStaticResponse(c, ext)
 		switch ext {
 		case ".js":
 			c.Writer.Header().Set("Content-Type", "application/javascript")
@@ -162,28 +197,33 @@ func StaticFileHandler(subFS fs.FS) gin.HandlerFunc {
 			}
 		}
 
-		newFile, err := subFS.Open(reqPath)
+		if gzipEnabled {
+			c.Writer.Header().Set("Content-Encoding", "gzip")
+			c.Writer.Header().Add("Vary", "Accept-Encoding")
+			c.Writer.WriteHeader(http.StatusOK)
+			if c.Request.Method == http.MethodHead {
+				return
+			}
+			gz, _ := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+			defer gz.Close()
+			_, _ = io.Copy(gz, file)
+			return
+		}
+
+		if readSeeker, ok := file.(io.ReadSeeker); ok {
+			modTime := fileInfo.ModTime()
+			http.ServeContent(c.Writer, c.Request, reqPath, modTime, readSeeker)
+			return
+		}
+
+		content, err := io.ReadAll(file)
 		if err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		defer newFile.Close()
 
-		readSeeker, ok := newFile.(io.ReadSeeker)
-		if ok {
-			modTime := fileInfo.ModTime()
-			http.ServeContent(c.Writer, c.Request, reqPath, modTime, readSeeker)
-		} else {
-			content, err := io.ReadAll(newFile)
-			if err != nil {
-				c.Status(http.StatusInternalServerError)
-				return
-			}
-
-			c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
-
-			c.Writer.WriteHeader(http.StatusOK)
-			c.Writer.Write(content)
-		}
+		c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+		c.Writer.WriteHeader(http.StatusOK)
+		_, _ = c.Writer.Write(content)
 	}
 }

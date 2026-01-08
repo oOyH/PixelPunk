@@ -116,7 +116,8 @@ func RegisterAISettingHooks() {
 		}
 	}
 
-	aiCriticalKeys := []string{"ai_enabled", "ai_api_key", "ai_base_url", "ai_model"}
+	// 触发队列扫描的关键配置项：启用开关、提供者/模型、API Key、代理地址等
+	aiCriticalKeys := []string{"ai_enabled", "ai_provider", "ai_api_key", "ai_proxy", "ai_model"}
 	for _, key := range aiCriticalKeys {
 		setting.RegisterSettingChangeHandler("ai", key, func(value string) {
 			handleAIConfigChange()
