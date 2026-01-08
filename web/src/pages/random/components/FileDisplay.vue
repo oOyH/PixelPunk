@@ -20,6 +20,8 @@
 
   const currentImageUrl = ref('')
   const isProgressiveLoading = ref(true)
+  const waitingForCyberFileLoad = ref(false)
+  let progressiveLoadToken = 0
 
   const imageFitMode = computed(() => {
     if (!props.imageData) return 'contain'
@@ -41,20 +43,45 @@
   })
 
   const loadProgressiveImage = () => {
-    currentImageUrl.value = props.imageData.full_thumb_url || props.imageData.full_url
-    isProgressiveLoading.value = true
+    const token = ++progressiveLoadToken
+
+    const fullUrl = props.imageData.full_url
+    const thumbUrl = props.imageData.full_thumb_url || fullUrl
+    const canProgress = Boolean(fullUrl) && Boolean(thumbUrl) && thumbUrl !== fullUrl
+
+    currentImageUrl.value = thumbUrl
+    isProgressiveLoading.value = canProgress
+    waitingForCyberFileLoad.value = !canProgress
+
+    if (!canProgress) {
+      return
+    }
 
     const img = new Image()
     img.onload = () => {
-      currentImageUrl.value = props.imageData.full_url
+      if (token !== progressiveLoadToken) return
+      currentImageUrl.value = fullUrl
       isProgressiveLoading.value = false
       emit('image-load')
     }
     img.onerror = () => {
+      if (token !== progressiveLoadToken) return
       isProgressiveLoading.value = false
       emit('image-error')
     }
-    img.src = props.imageData.full_url
+    img.src = fullUrl
+  }
+
+  const handleCyberFileLoad = () => {
+    if (!waitingForCyberFileLoad.value) return
+    waitingForCyberFileLoad.value = false
+    emit('image-load')
+  }
+
+  const handleCyberFileError = () => {
+    waitingForCyberFileLoad.value = false
+    isProgressiveLoading.value = false
+    emit('image-error')
   }
 
   watch(
@@ -135,6 +162,8 @@
       :retry-count="3"
       :is-nsfw="imageData.is_nsfw"
       background-pattern="none"
+      @load="handleCyberFileLoad"
+      @error="handleCyberFileError"
       @click="openFullscreen"
     />
 
@@ -316,7 +345,7 @@
   }
 
   .progressive-loading .hero-image {
-    filter: blur(2px);
+    filter: none;
     transition: filter 0.3s ease;
   }
 

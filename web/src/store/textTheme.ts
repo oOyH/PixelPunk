@@ -3,6 +3,9 @@ import { ref, computed } from 'vue'
 import { getLocale, DEFAULT_LOCALE, DEFAULT_THEME, isLocaleSupported, preloadLocales } from '@/locales'
 import type { SupportedLocale, TextTheme, TextKey, LocaleData } from '@/locales/zh-CN'
 import { detectBrowserLanguage } from '@/utils/language'
+import { StorageUtil } from '@/utils/storage/storage'
+import { GLOBAL_SETTINGS_CACHE_KEY } from '@/constants/storage'
+import type { GlobalSettingsResponse } from '@/api/admin/settings'
 
 /**
  * 文案主题状态管理 - 支持动态加载语言包
@@ -36,27 +39,24 @@ export const useTextThemeStore = defineStore('textTheme', () => {
         currentLocale.value = savedLocale as SupportedLocale
       } else {
         try {
-          const { getGlobalSettings } = await import('@/api/admin/settings')
-          const response = await getGlobalSettings()
+          const cached = StorageUtil.get<GlobalSettingsResponse>(GLOBAL_SETTINGS_CACHE_KEY)
+          const appearance: any = cached?.appearance || {}
+          const defaultLanguage = typeof appearance.default_language === 'string' ? appearance.default_language : undefined
+          const enableMultiLanguage = Boolean(appearance.enable_multi_language)
 
-          if (response.code === 200 && response.data?.appearance) {
-            const defaultLanguage = response.data.appearance.default_language
-            const enableMultiLanguage = response.data.appearance.enable_multi_language
+          if (enableMultiLanguage && defaultLanguage) {
+            let targetLocale: SupportedLocale
 
-            if (enableMultiLanguage && defaultLanguage) {
-              let targetLocale: SupportedLocale
-
-              if (defaultLanguage === 'auto') {
-                targetLocale = detectBrowserLanguage()
-              } else if (isLocaleSupported(defaultLanguage as string)) {
-                targetLocale = defaultLanguage as SupportedLocale
-              } else {
-                targetLocale = DEFAULT_LOCALE
-              }
-
-              currentLocale.value = targetLocale
-              localStorage.setItem('locale', targetLocale)
+            if (defaultLanguage === 'auto') {
+              targetLocale = detectBrowserLanguage()
+            } else if (isLocaleSupported(defaultLanguage as string)) {
+              targetLocale = defaultLanguage as SupportedLocale
+            } else {
+              targetLocale = DEFAULT_LOCALE
             }
+
+            currentLocale.value = targetLocale
+            localStorage.setItem('locale', targetLocale)
           }
         } catch (error) {
           // 静默处理错误，使用系统默认语言

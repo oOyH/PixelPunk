@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"strings"
 	"time"
 
 	ai "pixelpunk/internal/services/ai"
@@ -27,7 +28,8 @@ func InitAllServices(appVersion string) {
 
 /* syncVersionToDatabase 同步应用版本号到数据库 */
 func syncVersionToDatabase(appVersion string) {
-	if appVersion == "" {
+	appVersion = strings.TrimSpace(appVersion)
+	if appVersion == "" || strings.EqualFold(appVersion, "docker") {
 		return
 	}
 

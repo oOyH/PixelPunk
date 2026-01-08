@@ -21,8 +21,6 @@
   const toast = useToast()
   const { $t } = useTexts()
 
-  const _siteDomain = import.meta.env.VITE_SITE_DOMAIN || 'http://localhost:5173'
-
   const goToAuthorPage = () => {
     if (imageData.value?.user_info?.id) {
       window.open(`/author/${imageData.value.user_info.id}`, '_blank')
@@ -51,6 +49,7 @@
         }
 
         imageData.value = newImageData
+        loading.value = false
       } else {
         error.value = result.message || $t('random.error.fetchFailed')
         loading.value = false
@@ -131,6 +130,8 @@
         @image-load="onImageLoad"
         @image-error="onImageError"
       />
+
+      <SkeletonLoader v-else-if="loading" />
     </div>
 
     <div v-if="imageData" class="details-section">

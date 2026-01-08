@@ -7,3 +7,4 @@ export const USER_INFO_KEY = 'userInfo'
 export const TOKEN_EXPIRES = 24 * 7 // 7天
 export const LAYOUT_MODE_KEY = 'layoutMode'
 export const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed'
+export const GLOBAL_SETTINGS_CACHE_KEY = 'global_settings_cache_v1'

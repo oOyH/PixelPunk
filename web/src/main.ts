@@ -44,12 +44,7 @@ async function initializeApp() {
   const settingsStore = useSettingsStore()
   const layoutStore = useLayoutStore()
 
-  try {
-    await settingsStore.loadGlobalSettings()
-    await layoutStore.initializeLayout()
-  } catch (error) {
-    console.error('Settings initialization failed:', error)
-  }
+  settingsStore.hydrateFromCache()
 
   app.use(router)
 
@@ -66,6 +61,12 @@ async function initializeApp() {
   messageSystem.init()
 
   app.mount('#app')
+
+  // Refresh settings/layout in background to avoid blocking first paint
+  void settingsStore.loadGlobalSettings()
+  void layoutStore.initializeLayout().catch((error) => {
+    console.warn('Layout initialization failed:', error)
+  })
 
   return app
 }

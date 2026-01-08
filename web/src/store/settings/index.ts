@@ -4,6 +4,8 @@ import { getGlobalSettings, type GlobalSettingsResponse } from '@/api/admin/sett
 import FaviconManager from '@/utils/favicon'
 import { SEOManager } from '@/utils/seo'
 import { useTexts } from '@/composables/useTexts'
+import { StorageUtil } from '@/utils/storage/storage'
+import { GLOBAL_SETTINGS_CACHE_KEY } from '@/constants/storage'
 
 /* 导入所有子模块 */
 import { useWebsiteSettingsModule } from './website'
@@ -16,6 +18,7 @@ import { useAISettingsModule } from './ai'
 import { useAnalyticsSettingsModule } from './analytics'
 
 export * from './types'
+const GLOBAL_SETTINGS_CACHE_TTL_HOURS = 6
 
 /**
  * 🎛️ 统一设置管理 Store
@@ -38,6 +41,61 @@ export const useSettingsStore = defineStore('settings', () => {
   const loading = ref(false)
   const rawSettings = ref<GlobalSettingsResponse | null>(null) // 保存原始响应数据
 
+  function applyGlobalSettings(data: GlobalSettingsResponse) {
+    rawSettings.value = data
+
+    if (data.website) {
+      website.updateWebsiteSettings(data.website)
+    }
+    if (data.website_info) {
+      websiteInfo.updateWebsiteInfoSettings(data.website_info)
+    }
+    if (data.upload) {
+      upload.updateUploadSettings(data.upload)
+    }
+    if (data.registration) {
+      registration.updateRegistrationSettings(data.registration)
+    }
+    if (data.version) {
+      version.updateVersionSettings(data.version)
+    }
+    if (data.appearance) {
+      appearance.updateAppearanceSettings(data.appearance)
+    }
+    if (data.ai) {
+      ai.updateAISettings(data.ai)
+    }
+    if (data.vector) {
+      ai.updateVectorSettings(data.vector)
+    }
+    if (data.analytics) {
+      analytics.updateAnalyticsSettings(data.analytics)
+    }
+
+    if (data.website_info?.favicon_url) {
+      FaviconManager.update(data.website_info.favicon_url)
+    }
+
+    SEOManager.setSEO({
+      siteName: data.website_info?.site_name || 'PixelPunk',
+      description: data.website_info?.site_description || $t('store.settings.defaults.siteDescription'),
+      keywords: data.website_info?.site_keywords || '',
+    })
+
+    isLoaded.value = true
+  }
+
+  function hydrateFromCache() {
+    try {
+      const cached = StorageUtil.get<GlobalSettingsResponse>(GLOBAL_SETTINGS_CACHE_KEY)
+      if (cached) {
+        applyGlobalSettings(cached)
+      }
+    } catch (error) {
+      console.warn('Failed to hydrate global settings from cache:', error)
+    }
+  }
+
   async function loadGlobalSettings() {
     if (loading.value) return
 
@@ -46,8 +104,6 @@ export const useSettingsStore = defineStore('settings', () => {
       const response = await getGlobalSettings()
       if (response.code === 200 && response.data) {
         const data = response.data as GlobalSettingsResponse
-
-        rawSettings.value = data
 
         if (data.website) {
           website.updateWebsiteSettings(data.website)
@@ -88,6 +144,7 @@ export const useSettingsStore = defineStore('settings', () => {
         })
 
         isLoaded.value = true
+        StorageUtil.set(GLOBAL_SETTINGS_CACHE_KEY, data, GLOBAL_SETTINGS_CACHE_TTL_HOURS)
       }
     } catch (error) {
       console.error('加载全局设置失败:', error)
@@ -126,6 +183,7 @@ export const useSettingsStore = defineStore('settings', () => {
     ...analytics,
 
     loadGlobalSettings,
+    hydrateFromCache,
     reset,
   }
 })

@@ -33,8 +33,14 @@
   onMounted(() => {
     if (props.progress === 0) {
       progressInterval = setInterval(() => {
-        if (simulatedProgress.value < 90) {
+        if (simulatedProgress.value < 95) {
           simulatedProgress.value += Math.random() * 10
+        } else if (simulatedProgress.value < 99) {
+          simulatedProgress.value += Math.random() * 0.4
+        }
+
+        if (simulatedProgress.value > 99) {
+          simulatedProgress.value = 99
         }
       }, 200)
     }

@@ -31,11 +31,19 @@
   const settingsStore = useSettingsStore()
 
   const versionDisplay = computed(() => {
-    const version = settingsStore.currentVersion
-    if (version && version !== '1.0.0') {
-      return `VERSION v${version}`
+    const fallbackVersion = '1.2.3'
+    const rawVersion = String(settingsStore.currentVersion || '').trim()
+
+    const version = rawVersion && rawVersion !== '1.0.0' ? rawVersion : fallbackVersion
+
+    // Only prefix semver-like versions with "v" to avoid showing "vDOCKER"/"vDEV" etc.
+    const semverLike = /^[vV]?\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.-]+)?$/.test(version)
+    if (!semverLike) {
+      return `VERSION ${version}`
     }
-    return 'VERSION v1.2.2'
+
+    const normalized = version.startsWith('v') || version.startsWith('V') ? version : `v${version}`
+    return `VERSION ${normalized}`
   })
 
   const dynamicSiteName = computed(() => {

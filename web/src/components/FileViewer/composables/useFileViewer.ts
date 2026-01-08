@@ -151,10 +151,18 @@ export function useFileViewer(initialFile: FileInfo | null = null) {
     loadingText.value = $t?.('loading').value || 'Loading...'
 
     progressInterval = setInterval(() => {
-      if (loadingProgress.value < 90) {
-        loadingProgress.value += Math.random() * 20
-        if (loadingProgress.value > 90) {
-          loadingProgress.value = 90
+      if (loadingProgress.value < 95) {
+        loadingProgress.value += Math.random() * 12
+        if (loadingProgress.value > 95) {
+          loadingProgress.value = 95
+        }
+        return
+      }
+
+      if (loadingProgress.value < 99) {
+        loadingProgress.value += Math.random() * 0.6
+        if (loadingProgress.value > 99) {
+          loadingProgress.value = 99
         }
       }
     }, 200)
